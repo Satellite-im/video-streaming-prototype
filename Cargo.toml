@@ -7,7 +7,16 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1" }
+async-stream = "0.3.5"
+futures-core = "0.3.30"
+futures-util = "0.3.30"
+
 av-data = "*"
 eye = { git="https://github.com/raymanfx/eye-rs.git", rev="24324eb629dd73f349d0b4678cb0dd4dc5d75f1c" }
 image = "0.24"
 libaom = { git="https://github.com/sdwoodbury/aom-rs", rev="51086cef6b3eb177bdb81b511661375b82583a17" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+dioxus = { version = "0.4.3" }
+dioxus-desktop = "0.4"
+dioxus-html = "0.4"
