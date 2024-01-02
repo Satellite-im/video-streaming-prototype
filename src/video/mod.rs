@@ -9,7 +9,7 @@
 use crate::utils::yuv::*;
 
 use async_stream::stream;
-use futures_core::stream::{BoxStream, Stream};
+use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
 
 use anyhow::{bail, Result};
@@ -22,15 +22,8 @@ use eye::{
         PlatformContext,
     },
 };
-use std::{
-    fs::OpenOptions,
-    io::{BufWriter, Write},
-    sync::Arc,
-};
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
+use std::time::Instant;
 
 use libaom::{decoder::AV1Decoder, encoder::*};
 
@@ -74,9 +67,8 @@ fn camera_stream<'a>() -> Result<Camera<'a>> {
                 return s1;
             }
 
-            // Strive for HD (1280 x 720)
             let distance = |width: u32, height: u32| {
-                f32::sqrt(((640 - width as i32).pow(2) + (480 - height as i32).pow(2)) as f32)
+                f32::sqrt(((512 - width as i32).pow(2) + (512 - height as i32).pow(2)) as f32)
             };
 
             if distance(s1.width, s1.height) < distance(s2.width, s2.height) {

@@ -239,6 +239,45 @@ function createTexture(gl, data, width, height) {
 
 init();
 
+const socket = new WebSocket("ws://127.0.0.1:8081");
+// Connection opened event
+socket.addEventListener('open', (event) => {
+    console.log('WebSocket connection opened:', event);
+});
+
+// Connection closed event
+socket.addEventListener('close', (event) => {
+    console.log('WebSocket connection closed:', event);
+});
+
+// Error event
+socket.addEventListener('error', (event) => {
+    console.error('WebSocket error:', event);
+});
+
+var y = [];
+var u = [];
+var v = [];
+var counter = 0;
+
+var width = 512;
+var height = 512;
+
+// Message received event
+socket.addEventListener('message', (event) => {
+    if (counter === 0) {
+        y = event.data;
+        counter = 1;
+    } else if (counter === 1) {
+        u = event.data;
+        counter = 2;
+    } else {
+        v = event.data;
+        counter = 0;
+        render(refs.gl, refs.program, y, u, v, width, height);
+    }
+});
+
 /*const xhr=new XMLHttpRequest();
 xhr.open('GET','/static/letter-f.yuv');
 xhr.responseType='arraybuffer';
