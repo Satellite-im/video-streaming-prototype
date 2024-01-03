@@ -14,7 +14,7 @@ futures-util = "0.3.30"
 av-data = "*"
 eye = { git="https://github.com/raymanfx/eye-rs.git", rev="24324eb629dd73f349d0b4678cb0dd4dc5d75f1c" }
 image = "0.24"
-libaom = { git="https://github.com/sdwoodbury/aom-rs", rev="51086cef6b3eb177bdb81b511661375b82583a17" }
+libaom = { git="https://github.com/Satellite-im/aom-rs", branch="feat/windows-build" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal"] }
 tokio-tungstenite = "0.21"
 
