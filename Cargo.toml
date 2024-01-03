@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1" }
 async-stream = "0.3.5"
+ctrlc = "3.4"
 futures-core = "0.3.30"
 futures-util = "0.3.30"
 
@@ -21,3 +22,7 @@ tokio-tungstenite = "0.21"
 dioxus = { version = "0.4.3" }
 dioxus-desktop = "0.4"
 dioxus-html = "0.4"
+
+[profile.profiling]
+inherits = "release"
+debug = true

@@ -1,9 +1,10 @@
 use std::{
-    process::ExitCode,
+    process::{self, ExitCode},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
 use tokio::signal;
@@ -15,12 +16,12 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use video_streaming_prototype::video::{self, YuvFrame};
 
-#[tokio::main]
-async fn main() {
+//#[tokio::main]
+fn main() {
     // dioxus_desktop::launch(app);
     let (tx, mut rx) = broadcast::channel(128);
 
-    tokio::task::spawn_blocking(move || while rx.blocking_recv().is_ok() {});
+    /*tokio::task::spawn_blocking(move || while rx.blocking_recv().is_ok() {});
 
     let tx2 = tx.clone();
     let should_quit = Arc::new(AtomicBool::new(false));
@@ -72,6 +73,21 @@ async fn main() {
         .expect("Unable to listen for shutdown signal");
     println!("shutting down");
     should_quit.store(true, Ordering::Relaxed);
+    std::process::exit(0)*/
+
+    let should_quit = Arc::new(AtomicBool::new(false));
+    let should_quit2 = should_quit.clone();
+
+    ctrlc::set_handler(move || {
+        println!("received Ctrl+C!");
+        should_quit.store(true, Ordering::Relaxed);
+    })
+    .unwrap();
+
+    if let Err(e) = video::capture_camera(tx, should_quit2) {
+        eprintln!("camera capture failed: {e}");
+    }
+
     std::process::exit(0)
 }
 

@@ -96,8 +96,8 @@ pub fn capture_camera(
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };
 
-    let pixel_format = *av_data::pixel::formats::YUV420;
-    let pixel_format = Arc::new(pixel_format);
+    let pixel_format = av_data::pixel::formats::YUV420;
+    let pixel_format = Arc::new(pixel_format.clone());
 
     // configure av1 decoder
     let mut decoder = AV1Decoder::<()>::new().map_err(|e| anyhow::anyhow!(e))?;
@@ -108,14 +108,20 @@ pub fn capture_camera(
     println!("starting stream with description: {stream_descr:?}");
 
     let (tx, rx) = std::sync::mpsc::channel();
+    let should_quit2 = should_quit.clone();
     std::thread::spawn(move || loop {
+        if should_quit2.load(Ordering::Relaxed) {
+            println!("quitting camera capture tx thread");
+            return;
+        }
         let buf = stream.next().unwrap().unwrap();
         tx.send(buf.to_vec()).unwrap();
     });
 
     while let Ok(frame) = rx.recv() {
+        println!("got frame");
         if should_quit.load(Ordering::Relaxed) {
-            println!("quitting camera capture");
+            println!("quitting camera capture rx thread");
             break;
         }
         let frame_time = start.elapsed();
@@ -125,7 +131,7 @@ pub fn capture_camera(
 
         let yuv = {
             let p = frame.as_ptr();
-            let len = frame_width * frame_height * 3;
+            let len = stream_descr.height * stream_descr.width * 3;
             let s = std::ptr::slice_from_raw_parts(p, len as _);
             let s: &[u8] = unsafe { &*s };
 
@@ -181,6 +187,7 @@ pub fn capture_camera(
                         eprintln!("failed to extract Cr plane from frame");
                         continue;
                     };
+                    println!("sending frame");
                     let _ = frame_tx.send(YuvFrame {
                         y: y.to_vec(),
                         u: u.to_vec(),
