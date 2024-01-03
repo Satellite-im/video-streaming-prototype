@@ -8,11 +8,7 @@
 
 use crate::utils::yuv::*;
 
-use async_stream::stream;
-use futures_core::stream::BoxStream;
-use futures_util::StreamExt;
-
-use anyhow::{bail, Result};
+use anyhow::bail;
 use av_data::{frame::FrameType, timeinfo::TimeInfo};
 use eye::{
     colorconvert::Device,
@@ -22,32 +18,27 @@ use eye::{
         PlatformContext,
     },
 };
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Instant;
+use tokio::sync::broadcast;
 
 use libaom::{decoder::AV1Decoder, encoder::*};
 
-type CameraStream<'a> = BoxStream<'a, Vec<u8>>;
-type AvPacketStream<'a> = BoxStream<'a, av_data::packet::Packet>;
-pub type AvFrameStream<'a> = BoxStream<'a, Box<dyn av_data::frame::FrameBuffer>>;
-
-struct Camera<'a> {
-    pub stream: CameraStream<'a>,
-    pub descr: eye::hal::stream::Descriptor,
+#[derive(Clone)]
+pub struct YuvFrame {
+    pub y: Vec<u8>,
+    pub u: Vec<u8>,
+    pub v: Vec<u8>,
 }
 
-pub fn get_stream<'a>() -> Result<AvFrameStream<'a>> {
-    // shows how to read frames from eye-rs
-    let cs = camera_stream()?;
-    // shows how to encode frames
-    let avs = av_packet_stream(cs)?;
-    // shows how to decode frames
-    let afs = av_frame_stream(avs)?;
-    Ok(afs)
-}
-
-fn camera_stream<'a>() -> Result<Camera<'a>> {
-    // Create a context
+pub fn capture_camera(
+    frame_tx: broadcast::Sender<YuvFrame>,
+    should_quit: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    // configure camera capture
     let ctx = PlatformContext::all()
         .next()
         .ok_or(anyhow::anyhow!("No platform context available"))?;
@@ -85,30 +76,14 @@ fn camera_stream<'a>() -> Result<Camera<'a>> {
 
     println!("Selected stream:\n{:?}", stream_descr);
 
-    // Start the stream
-    let mut stream = dev.start_stream(&stream_descr)?;
-
-    println!("starting stream with description: {stream_descr:?}");
-
-    let s = stream! {
-        while let Some(Ok(buf)) = stream.next() {
-            yield buf.to_vec();
-        }
-    };
-
-    Ok(Camera {
-        stream: Box::pin(s),
-        descr: stream_descr,
-    })
-}
-fn av_packet_stream<'a>(mut camera: Camera<'a>) -> Result<AvPacketStream<'a>> {
+    // configure AV1 encoder
     let color_scale = ColorScale::HdTv;
     let multiplier: usize = 1;
 
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512;
     let frame_height = 512;
-    let fps = 1000.0 / (camera.descr.interval.as_millis() as f64);
+    let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
     let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
         Ok(r) => r,
@@ -124,75 +99,97 @@ fn av_packet_stream<'a>(mut camera: Camera<'a>) -> Result<AvPacketStream<'a>> {
     let pixel_format = *av_data::pixel::formats::YUV420;
     let pixel_format = Arc::new(pixel_format);
 
-    let s = stream! {
-        let start = Instant::now();
-        while let Some(frame) = camera.stream.next().await {
-            let frame_time = start.elapsed();
-            let frame_time_ms = frame_time.as_millis();
+    // configure av1 decoder
+    let mut decoder = AV1Decoder::<()>::new().map_err(|e| anyhow::anyhow!(e))?;
 
-            let timestamp = frame_time_ms as f64 / fps;
+    // Start the camera capture
+    let mut stream = dev.start_stream(&stream_descr)?;
+    let start = Instant::now();
+    println!("starting stream with description: {stream_descr:?}");
 
-            let yuv = {
-                let p = frame.as_ptr();
-                let len = frame_width * frame_height * 3;
-                let s = std::ptr::slice_from_raw_parts(p, len as _);
-                let s: &[u8] = unsafe { &*s };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || loop {
+        let buf = stream.next().unwrap().unwrap();
+        tx.send(buf.to_vec()).unwrap();
+    });
 
-                rgb_to_yuv420(s, frame_width as _, frame_height as _, color_scale)
-            };
+    while let Ok(frame) = rx.recv() {
+        if should_quit.load(Ordering::Relaxed) {
+            println!("quitting camera capture");
+            break;
+        }
+        let frame_time = start.elapsed();
+        let frame_time_ms = frame_time.as_millis();
 
-            let yuv_buf = YUV420Buf {
-                data: yuv,
-                width: frame_width as usize * multiplier,
-                height: frame_height as usize * multiplier,
-            };
+        let timestamp = frame_time_ms as f64 / fps;
 
-            let frame = av_data::frame::Frame {
-                kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
-                    yuv_buf.width,
-                    yuv_buf.height,
-                    false,
-                    FrameType::I,
-                    pixel_format.clone(),
-                )),
-                buf: Box::new(yuv_buf),
-                t: TimeInfo {
-                    pts: Some(timestamp as i64),
-                    ..Default::default()
-                },
-            };
+        let yuv = {
+            let p = frame.as_ptr();
+            let len = frame_width * frame_height * 3;
+            let s = std::ptr::slice_from_raw_parts(p, len as _);
+            let s: &[u8] = unsafe { &*s };
 
-            // println!("encoding");
-            if let Err(e) = encoder.encode(&frame) {
-                eprintln!("encoding error: {e}");
-                continue;
-            }
+            rgb_to_yuv420(s, frame_width as _, frame_height as _, color_scale)
+        };
 
-            // println!("calling get_packet");
-            while let Some(packet) = encoder.get_packet() {
-                if let AOMPacket::Packet(p) = packet {
-                   yield p;
+        let yuv_buf = YUV420Buf {
+            data: yuv,
+            width: frame_width as usize * multiplier,
+            height: frame_height as usize * multiplier,
+        };
+
+        let frame = av_data::frame::Frame {
+            kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
+                yuv_buf.width,
+                yuv_buf.height,
+                false,
+                FrameType::I,
+                pixel_format.clone(),
+            )),
+            buf: Box::new(yuv_buf),
+            t: TimeInfo {
+                pts: Some(timestamp as i64),
+                ..Default::default()
+            },
+        };
+
+        // test encoding
+        if let Err(e) = encoder.encode(&frame) {
+            eprintln!("encoding error: {e}");
+            continue;
+        }
+
+        // test decoding
+        while let Some(packet) = encoder.get_packet() {
+            if let AOMPacket::Packet(p) = packet {
+                if let Err(e) = decoder.decode(&p.data, None) {
+                    eprintln!("decoding error: {e}");
+                    continue;
+                }
+
+                while let Some((decoded_frame, _opt)) = decoder.get_frame() {
+                    let frame = decoded_frame.buf;
+                    let Ok(y) = frame.as_slice_inner(0) else {
+                        eprintln!("failed to extract Y plane from frame");
+                        continue;
+                    };
+                    let Ok(u) = frame.as_slice_inner(1) else {
+                        eprintln!("failed to extract Cb plane from frame");
+                        continue;
+                    };
+                    let Ok(v) = frame.as_slice_inner(2) else {
+                        eprintln!("failed to extract Cr plane from frame");
+                        continue;
+                    };
+                    let _ = frame_tx.send(YuvFrame {
+                        y: y.to_vec(),
+                        u: u.to_vec(),
+                        v: v.to_vec(),
+                    });
                 }
             }
         }
-    };
-    Ok(Box::pin(s))
-}
+    }
 
-fn av_frame_stream<'a>(mut packet_stream: AvPacketStream<'a>) -> Result<AvFrameStream<'a>> {
-    let mut decoder = AV1Decoder::<()>::new().map_err(|e| anyhow::anyhow!(e))?;
-    let s = stream! {
-        while let Some(packet) = packet_stream.next().await {
-            if let Err(e) = decoder.decode(&packet.data, None) {
-                eprintln!("decoding error: {e}");
-                continue;
-            }
-
-            while let Some((decoded_frame, _opt)) = decoder.get_frame() {
-                yield decoded_frame.buf
-            }
-        }
-    };
-
-    Ok(Box::pin(s))
+    Ok(())
 }
