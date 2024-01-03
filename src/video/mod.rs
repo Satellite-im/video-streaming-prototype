@@ -68,7 +68,7 @@ fn camera_stream<'a>() -> Result<Camera<'a>> {
             }
 
             let distance = |width: u32, height: u32| {
-                f32::sqrt(((512 - width as i32).pow(2) + (512 - height as i32).pow(2)) as f32)
+                f32::sqrt(((1280 - width as i32).pow(2) + (720 - height as i32).pow(2)) as f32)
             };
 
             if distance(s1.width, s1.height) < distance(s2.width, s2.height) {
@@ -105,15 +105,16 @@ fn av_packet_stream<'a>(mut camera: Camera<'a>) -> Result<AvPacketStream<'a>> {
     let color_scale = ColorScale::HdTv;
     let multiplier: usize = 1;
 
-    let frame_width = camera.descr.width;
-    let frame_height = camera.descr.height;
+    // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
+    let frame_width = 512;
+    let frame_height = 512;
     let fps = 1000.0 / (camera.descr.interval.as_millis() as f64);
 
     let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
     };
-    encoder_config.g_h = frame_height * multiplier as u32;
+    encoder_config.g_h = frame_width * multiplier as u32;
     encoder_config.g_w = frame_width * multiplier as u32;
     let mut encoder = match encoder_config.get_encoder() {
         Ok(r) => r,

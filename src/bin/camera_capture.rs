@@ -62,7 +62,7 @@ fn app(cx: Scope) -> Element {
                 }
             });
 
-            let _ = eval(app::WEBGL_SCRIPT);
+            // let _ = eval(app::WEBGL_SCRIPT);
         }
     });
 
