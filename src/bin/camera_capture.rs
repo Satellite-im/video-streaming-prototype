@@ -16,8 +16,8 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use video_streaming_prototype::video::{self, YuvFrame};
 
-//#[tokio::main]
-fn main() {
+#[tokio::main]
+async fn main() {
     // dioxus_desktop::launch(app);
     let (tx, mut rx) = broadcast::channel(128);
 
@@ -78,17 +78,15 @@ fn main() {
     let should_quit = Arc::new(AtomicBool::new(false));
     let should_quit2 = should_quit.clone();
 
-    ctrlc::set_handler(move || {
-        println!("received Ctrl+C!");
-        should_quit.store(true, Ordering::Relaxed);
-    })
-    .unwrap();
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = video::capture_camera(tx, should_quit2) {
+            eprintln!("camera capture failed: {e}");
+        }
+    });
 
-    if let Err(e) = video::capture_camera(tx, should_quit2) {
-        eprintln!("camera capture failed: {e}");
-    }
-
-    std::process::exit(0)
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    should_quit.store(true, Ordering::Relaxed);
+    println!("quitting camera capture");
 }
 
 /*fn app(cx: Scope) -> Element {
