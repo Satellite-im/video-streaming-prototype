@@ -127,16 +127,9 @@ pub fn capture_camera(
         let frame_time = start.elapsed();
         let frame_time_ms = frame_time.as_millis();
 
-        let timestamp = frame_time_ms as f64 / fps;
+        let timestamp = frame_time_ms as f64; // / fps;
 
-        let yuv = {
-            let p = frame.as_ptr();
-            let len = stream_descr.height * stream_descr.width * 3;
-            let s = std::ptr::slice_from_raw_parts(p, len as _);
-            let s: &[u8] = unsafe { &*s };
-
-            rgb_to_yuv420(s, frame_width as _, frame_height as _, color_scale)
-        };
+        let yuv = rgb_to_yuv420(&frame, frame_width as _, frame_height as _, color_scale);
 
         let yuv_buf = YUV420Buf {
             data: yuv,
