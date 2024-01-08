@@ -19,6 +19,7 @@ use eye::{
         PlatformContext,
     },
 };
+use image::ImageBuffer;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -122,6 +123,9 @@ pub fn capture_camera(
         tx.send(buf.to_vec()).unwrap();
     });
 
+    let width_scale = stream_descr.width as f32 / frame_width as f32;
+    let height_scale = stream_descr.height as f32 / frame_height as f32;
+
     while let Ok(frame) = rx.recv() {
         //println!("got frame");
         if should_quit.load(Ordering::Relaxed) {
@@ -129,7 +133,14 @@ pub fn capture_camera(
             break;
         }
 
-        let yuv = rgb_to_yuv420(&frame, frame_width as _, frame_height as _, color_scale);
+        let yuv = rgb_to_yuv420(
+            &frame, 
+             frame_width as _, 
+             frame_height as _, 
+             width_scale,
+             height_scale,
+             color_scale
+            );
 
         let (y, uv) = yuv.split_at(frame_width as usize * frame_height as usize);
         let (u, v) = uv.split_at(uv.len() / 2);
