@@ -84,7 +84,7 @@ impl av_data::frame::FrameBuffer for YUV420Buf {
 }
 
 // u and v are calculated by averaging a 4-pixel square
-pub fn rgb_to_yuv420(rgb: &[u8],  width: usize, height: usize, width_scale: f32, height_scale: f32, color_scale: ColorScale) -> Vec<u8> {
+pub fn rgb_to_yuv420(rgb: &[u8],  width: usize, height: usize, input_width: usize, input_height: usize, color_scale: ColorScale) -> Vec<u8> {
     let size = (3 * width * height) / 2;
     let mut yuv = vec![0; size];
 
@@ -92,12 +92,16 @@ pub fn rgb_to_yuv420(rgb: &[u8],  width: usize, height: usize, width_scale: f32,
     let v_base = u_base + u_base / 4;
     let half_width = width / 2;
 
-    let input_width = (width as f32 * width_scale) as usize;
+    // assumes input height and width are >= output height and width
+    let width_diff = input_width - width;
+    let height_diff = input_height - height;
+    let width_margin = width_diff / 2;
+    let height_margin = height_diff / 2;
 
     // y is full size, u, v is quarter size
     let pixel = |x: usize, y: usize| -> (f32, f32, f32) {
-        let x = (x as f32 * width_scale) as usize;
-        let y = (y as f32 * height_scale) as usize;
+        let x = x + width_margin;
+        let y = y + height_margin;
         // two dim to single dim
         let base_pos = (x + y * input_width) * 3;
         (
