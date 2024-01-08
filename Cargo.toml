@@ -17,6 +17,7 @@ image = "0.24"
 libaom = { git="https://github.com/Satellite-im/aom-rs", branch="feat/windows-build" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal"] }
 tokio-tungstenite = "0.21"
+url = "2"
 
 dioxus = { version = "0.4.3" }
 dioxus-desktop = "0.4"

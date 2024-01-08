@@ -232,7 +232,7 @@ function createTexture(gl, data, width, height) {
         0, 
         gl.LUMINANCE, 
         gl.UNSIGNED_BYTE, 
-        new Uint8Array(data)
+        new Uint8Array(data),
     );
     return texture;
 }
@@ -274,7 +274,7 @@ socket.addEventListener('message', (event) => {
     } else {
         v = event.data;
         counter = 0;
-        render(refs.gl, refs.program, y, u, v, width, height);
+        Promise.all([y.arrayBuffer(), u.arrayBuffer(), v.arrayBuffer()]).then(([y, u, v]) => render(refs.gl, refs.program, y, u, v, width, height));
     }
 });
 

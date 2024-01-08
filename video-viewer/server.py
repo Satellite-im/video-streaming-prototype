@@ -8,6 +8,10 @@ def letter_f():
 def get_style():
 	return static_file("style.css", root='./static')
 
+@route('/static/webgl-script.js')
+def get_webgl_script():
+	return static_file("webgl_script.js", root='./static')
+
 @route('/')
 def hello():
 	return template('index.html')

@@ -119,7 +119,7 @@ pub fn capture_camera(
     });
 
     while let Ok(frame) = rx.recv() {
-        println!("got frame");
+        //println!("got frame");
         if should_quit.load(Ordering::Relaxed) {
             println!("quitting camera capture rx thread");
             break;
@@ -187,7 +187,12 @@ pub fn capture_camera(
                         eprintln!("failed to extract Cr plane from frame");
                         continue;
                     };
-                    println!("sending frame");
+                    println!(
+                        "sending frame of size {}, {}, {}",
+                        y.len(),
+                        u.len(),
+                        v.len()
+                    );
                     let _ = frame_tx.send(YuvFrame {
                         y: y.to_vec(),
                         u: u.to_vec(),
