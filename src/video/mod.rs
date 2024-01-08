@@ -9,7 +9,8 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
-use av_data::{frame::FrameType, timeinfo::TimeInfo};
+use av_data::rational::*;
+use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
 use eye::{
     colorconvert::Device,
     hal::{
@@ -78,20 +79,23 @@ pub fn capture_camera(
 
     // configure AV1 encoder
     let color_scale = ColorScale::HdTv;
-    let multiplier: usize = 1;
 
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512;
     let frame_height = 512;
     let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
-    let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
-        Ok(r) => r,
-        Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
-    };
-    encoder_config.g_h = frame_width * multiplier as u32;
-    encoder_config.g_w = frame_width * multiplier as u32;
-    let mut encoder = match encoder_config.get_encoder() {
+    let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
+    av1_cfg = av1_cfg
+        .width(frame_width)
+        .height(frame_height)
+        .timebase(Rational64::new(1, 1000))
+        .rc_min_quantizer(0)
+        .rc_min_quantizer(0)
+        .threads(4)
+        .pass(0 /*AOM_RC_ONE_PASS*/);
+
+    let mut encoder = match av1_cfg.get_encoder() {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };
@@ -124,17 +128,13 @@ pub fn capture_camera(
             println!("quitting camera capture rx thread");
             break;
         }
-        let frame_time = start.elapsed();
-        let frame_time_ms = frame_time.as_millis();
-
-        let timestamp = frame_time_ms as f64; // / fps;
 
         let yuv = rgb_to_yuv420(&frame, frame_width as _, frame_height as _, color_scale);
 
         let yuv_buf = YUV420Buf {
             data: yuv,
-            width: frame_width as usize * multiplier,
-            height: frame_height as usize * multiplier,
+            width: frame_width as usize,
+            height: frame_height as usize,
         };
 
         let frame = av_data::frame::Frame {
@@ -147,7 +147,9 @@ pub fn capture_camera(
             )),
             buf: Box::new(yuv_buf),
             t: TimeInfo {
-                pts: Some(timestamp as i64),
+                pts: Some(start.elapsed().as_millis() as i64),
+                duration: Some(fps as u64),
+                timebase: Some(Rational64::new(1, 1000)),
                 ..Default::default()
             },
         };
