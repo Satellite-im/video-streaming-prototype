@@ -131,6 +131,16 @@ pub fn capture_camera(
 
         let yuv = rgb_to_yuv420(&frame, frame_width as _, frame_height as _, color_scale);
 
+        let (y, uv) = yuv.split_at(frame_width as usize * frame_height as usize);
+        let (u, v) = uv.split_at(uv.len() / 2);
+        let _ = frame_tx.send(YuvFrame {
+            y: y.to_vec(),
+            u: u.to_vec(),
+            v: v.to_vec(),
+        });
+
+        continue;
+
         let yuv_buf = YUV420Buf {
             data: yuv,
             width: frame_width as usize,
