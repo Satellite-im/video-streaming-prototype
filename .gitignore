@@ -20,3 +20,4 @@ Cargo.lock
 
 .vscode
 profile.json
+video-viewer/static/letter-f.yuv
