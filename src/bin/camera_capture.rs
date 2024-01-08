@@ -1,15 +1,10 @@
-use std::{
-    process::{self, ExitCode},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use tokio::signal;
 
-use dioxus::prelude::*;
 use futures_util::sink::SinkExt;
 use futures_util::StreamExt;
 use tokio::{net::TcpListener, sync::broadcast};
@@ -47,17 +42,16 @@ async fn main() {
                 let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
 
                 let (mut sink, _stream) = ws_stream.split();
-                while let Ok(YuvFrame { y, u, v }) = rx.recv().await {
+                while let Ok(YuvFrame {
+                    mut y,
+                    mut u,
+                    mut v,
+                }) = rx.recv().await
+                {
+                    y.append(&mut u);
+                    y.append(&mut v);
                     if let Err(e) = sink.send(Message::Binary(y)).await {
-                        eprintln!("failed to send Y plane: {e}");
-                        break;
-                    }
-                    if let Err(e) = sink.send(Message::Binary(u)).await {
-                        eprintln!("failed to send Cb plane: {e}");
-                        break;
-                    }
-                    if let Err(e) = sink.send(Message::Binary(v)).await {
-                        eprintln!("failed to send Cr plane: {e}");
+                        eprintln!("failed to send image: {e}");
                         break;
                     }
                 }

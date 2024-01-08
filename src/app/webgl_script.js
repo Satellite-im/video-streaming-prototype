@@ -258,24 +258,32 @@ socket.addEventListener('error', (event) => {
 var y = [];
 var u = [];
 var v = [];
-var counter = 0;
 
 var width = 512;
 var height = 512;
+const y_len = width * height;
+const uv_len = (width / 2) * (height / 2);
 
 // Message received event
 socket.addEventListener('message', (event) => {
-    if (counter === 0) {
-        y = event.data;
-        counter = 1;
-    } else if (counter === 1) {
-        u = event.data;
-        counter = 2;
-    } else {
-        v = event.data;
-        counter = 0;
-        Promise.all([y.arrayBuffer(), u.arrayBuffer(), v.arrayBuffer()]).then(([y, u, v]) => render(refs.gl, refs.program, y, u, v, width, height));
-    }
+    Promise.all([event.data.arrayBuffer()])
+    .then(
+        ([data]) => {
+            render(
+                refs.gl, 
+                refs.program, 
+                data.slice(0, y_len), 
+                data.slice(y_len, y_len + uv_len), 
+                data.slice(y_len + uv_len, y_len + uv_len + uv_len), 
+                width, 
+                height
+            );
+        },
+        (error) => {
+            console.log(error);
+        }
+    );
+    
 });
 
 /*const xhr=new XMLHttpRequest();
