@@ -189,10 +189,30 @@ pub fn capture_camera(
                 let u = yuv.u_with_stride();
                 let v = yuv.v_with_stride();
 
+                let strides = yuv.strides_yuv();
+                let mut y1 = vec![];
+                y1.reserve(512*512);
+                let mut u1 = vec![];
+                u1.reserve(256*256);
+                let mut v1 = vec![];
+                v1.reserve(256*256);
+
+                for row in y.chunks_exact(strides.0) {
+                    y1.extend_from_slice(&row[0..512]); 
+                }
+
+                for row in u.chunks_exact(strides.1) {
+                    u1.extend_from_slice(&row[0..256]); 
+                }
+
+                for row in v.chunks_exact(strides.2) {
+                    v1.extend_from_slice(&row[0..256]); 
+                }
+
                 let _ = frame_tx.send(YuvFrame {
-                    y: y[0..512*512].to_vec(),
-                    u: u[0..256*256].to_vec(),
-                    v: v[0..256*256].to_vec(),
+                    y: y1,
+                    u: u1,
+                    v: v1,
                 });
 
             } else {
