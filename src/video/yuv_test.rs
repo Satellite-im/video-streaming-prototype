@@ -77,9 +77,6 @@ pub fn capture_stream(
 
     println!("Selected stream:\n{:?}", stream_descr);
 
-    // configure AV1 encoder
-    let color_scale = ColorScale::HdTv;
-
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512 as usize;
     let frame_height = 512 as usize;
@@ -156,7 +153,7 @@ pub fn capture_stream(
             frame_height,
             stream_descr.width as _,
             stream_descr.height as _,
-            color_scale,
+            ColorScale::Av,
         );
         drop(frame);
 
