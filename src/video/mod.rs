@@ -8,11 +8,6 @@
 
 use crate::utils::yuv::*;
 
-
-use openh264::decoder::Decoder;
-use openh264::{nal_units, OpenH264API};
-use openh264::encoder::{Encoder, EncoderConfig};
-
 use anyhow::bail;
 use av_data::rational::*;
 use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
@@ -106,7 +101,6 @@ pub fn capture_camera(
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };*/
 
-
     let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
@@ -123,13 +117,6 @@ pub fn capture_camera(
 
     // configure av1 decoder
     let mut decoder = AV1Decoder::<()>::new().map_err(|e| anyhow::anyhow!(e))?;
-
-
-    let config = EncoderConfig::new(512, 512);
-    let api = OpenH264API::from_source();
-    let mut h264_encoder = Encoder::with_config(api, config)?;
-    let api = OpenH264API::from_source();
-    let mut h264_decoder = Decoder::new(api)?;
 
     // Start the camera capture
     let mut stream = dev.start_stream(&stream_descr)?;
@@ -179,48 +166,7 @@ pub fn capture_camera(
             height: frame_height as usize,
         };
 
-        let bitstream = h264_encoder.encode(&yuv_buf)?;
-
-        for packet in nal_units(&bitstream.to_vec()) {
-            // On the first few frames this may fail, so you should check the result
-            // a few packets before giving up.
-            if let Ok(Some(yuv)) = h264_decoder.decode(packet) {
-                let y = yuv.y_with_stride();
-                let u = yuv.u_with_stride();
-                let v = yuv.v_with_stride();
-
-                let strides = yuv.strides_yuv();
-                let mut y1 = vec![];
-                y1.reserve(512*512);
-                let mut u1 = vec![];
-                u1.reserve(256*256);
-                let mut v1 = vec![];
-                v1.reserve(256*256);
-
-                for row in y.chunks_exact(strides.0) {
-                    y1.extend_from_slice(&row[0..512]); 
-                }
-
-                for row in u.chunks_exact(strides.1) {
-                    u1.extend_from_slice(&row[0..256]); 
-                }
-
-                for row in v.chunks_exact(strides.2) {
-                    v1.extend_from_slice(&row[0..256]); 
-                }
-
-                let _ = frame_tx.send(YuvFrame {
-                    y: y1,
-                    u: u1,
-                    v: v1,
-                });
-
-            } else {
-                continue;
-            }
-        }
-
-        /*let frame = av_data::frame::Frame {
+        let frame = av_data::frame::Frame {
             kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
                 yuv_buf.width,
                 yuv_buf.height,
@@ -278,7 +224,7 @@ pub fn capture_camera(
                     });
                 }
             }
-        }*/
+        }
     }
 
     Ok(())
