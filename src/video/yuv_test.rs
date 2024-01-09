@@ -11,6 +11,7 @@ use crate::utils::yuv::*;
 use anyhow::bail;
 use av_data::{
     frame::{FrameType, MediaKind, VideoInfo},
+    pixel::{ColorModel, TrichromaticEncodingSystem, YUVRange, YUVSystem},
     rational::Rational64,
     timeinfo::TimeInfo,
 };
@@ -82,15 +83,13 @@ pub fn capture_stream(
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512 as usize;
     let frame_height = 512 as usize;
-    let y_len = frame_width * frame_height;
-    let uv_len = y_len / 4;
-    //let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
+    let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
     let t = TimeInfo {
         pts: Some(0),
         dts: Some(0),
         duration: Some(1),
-        timebase: Some(Rational64::new(1, 1000)),
+        timebase: Some(Rational64::new(1, fps as _)),
         user_private: None,
     };
 
@@ -106,7 +105,7 @@ pub fn capture_stream(
         .height(frame_height as _)
         .bit_depth(8)
         .input_bit_depth(8)
-        .timebase(Rational64::new(1, 1000))
+        .timebase(t.timebase.unwrap())
         .pass(0 /*AOM_RC_ONE_PASS*/);
 
     let mut encoder = match av1_cfg.get_encoder() {
@@ -114,6 +113,7 @@ pub fn capture_stream(
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };
 
+    // warning: pixels in range [16, 235]
     let pixel_format = av_data::pixel::formats::YUV420;
     let pixel_format = Arc::new(pixel_format.clone());
 
@@ -171,12 +171,13 @@ pub fn capture_stream(
 
         continue;*/
 
-        let mut av_frame = av_data::frame::Frame::new_default_frame(
+        // this was an attempt at constructing the Frame differently
+        /*let mut av_frame = av_data::frame::Frame::new_default_frame(
             MediaKind::Video(VideoInfo::new(
                 frame_width as _,
                 frame_height as _,
                 false,
-                FrameType::OTHER,
+                FrameType::I,
                 pixel_format.clone(),
             )),
             Some(t.clone()),
@@ -200,28 +201,35 @@ pub fn capture_stream(
         {
             let v_plane = av_frame.buf.as_mut_slice_inner(2).unwrap();
             v_plane.copy_from_slice(v_input);
-        }
+        }*/
 
-        /*let yuv_buf = YUV420Buf {
+        let yuv_buf = YUV420Buf {
             data: yuv,
             width: frame_width as usize,
             height: frame_height as usize,
         };
-        frame_counter += 1;
 
-        let mut frame = av_data::frame::Frame {
+        // insert key frames
+        let frame_type = if frame_counter % 30 == 0 {
+            FrameType::P
+        } else {
+            FrameType::I
+        };
+
+        let mut av_frame = av_data::frame::Frame {
             kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
                 yuv_buf.width,
                 yuv_buf.height,
                 false,
-                FrameType::I,
+                frame_type,
                 pixel_format.clone(),
             )),
             buf: Box::new(yuv_buf),
             t: t.clone(),
         };
 
-        frame.t.pts = Some(frame_counter);*/
+        av_frame.t.pts = Some(frame_counter);
+        frame_counter += 1;
 
         // test encoding
         if let Err(e) = encoder.encode(&av_frame) {
