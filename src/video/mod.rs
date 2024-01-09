@@ -9,7 +9,11 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
-use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
+use av_data::{
+    frame::{FrameType, MediaKind, VideoInfo},
+    rational::Rational64,
+    timeinfo::TimeInfo,
+};
 use eye::{
     colorconvert::Device,
     hal::{
@@ -51,12 +55,9 @@ pub fn capture_camera(
     let stream_descr = dev
         .streams()?
         .into_iter()
+        // Choose RGB with 8 bit depth
+        .filter(|s| matches!(s.pixfmt, PixelFormat::Rgb(24)))
         .reduce(|s1, s2| {
-            // Choose RGB with 8 bit depth
-            if s1.pixfmt == PixelFormat::Rgb(24) && s2.pixfmt != PixelFormat::Rgb(24) {
-                return s1;
-            }
-
             let distance = |width: u32, height: u32| {
                 f32::sqrt(((1280 - width as i32).pow(2) + (720 - height as i32).pow(2)) as f32)
             };
@@ -79,8 +80,10 @@ pub fn capture_camera(
     let color_scale = ColorScale::HdTv;
 
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
-    let frame_width = 512;
-    let frame_height = 512;
+    let frame_width = 512 as usize;
+    let frame_height = 512 as usize;
+    let y_len = frame_width * frame_height;
+    let uv_len = y_len / 4;
     //let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
     let t = TimeInfo {
@@ -99,8 +102,8 @@ pub fn capture_camera(
         .rc_end_usage(1 /*AOM_CBR*/)
         .threads(4 /*max threads*/)
         .profile(BitstreamProfile::Profile0 /*8 bit 4:2:0*/)
-        .width(frame_width)
-        .height(frame_height)
+        .width(frame_width as _)
+        .height(frame_height as _)
         .bit_depth(8)
         .input_bit_depth(8)
         .timebase(Rational64::new(1, 1000))
@@ -149,12 +152,13 @@ pub fn capture_camera(
 
         let yuv = rgb_to_yuv420(
             &frame,
-            frame_width as _,
-            frame_height as _,
+            frame_width,
+            frame_height,
             stream_descr.width as _,
             stream_descr.height as _,
             color_scale,
         );
+        drop(frame);
 
         // this is to test the webgl code separately from the libaom code
         /*let (y, uv) = yuv.split_at(frame_width as usize * frame_height as usize);
@@ -167,12 +171,44 @@ pub fn capture_camera(
 
         continue;*/
 
-        let yuv_buf = YUV420Buf {
+        let mut av_frame = av_data::frame::Frame::new_default_frame(
+            MediaKind::Video(VideoInfo::new(
+                frame_width as _,
+                frame_height as _,
+                false,
+                FrameType::OTHER,
+                pixel_format.clone(),
+            )),
+            Some(t.clone()),
+        );
+
+        debug_assert!(av_frame.buf.count() == 3);
+
+        let (y_input, uv_input) = yuv.split_at(y_len);
+        let (u_input, v_input) = uv_input.split_at(uv_len);
+
+        {
+            let y_plane = av_frame.buf.as_mut_slice_inner(0).unwrap();
+            y_plane.copy_from_slice(y_input);
+        }
+
+        {
+            let u_plane = av_frame.buf.as_mut_slice_inner(1).unwrap();
+            u_plane.copy_from_slice(u_input);
+        }
+
+        {
+            let v_plane = av_frame.buf.as_mut_slice_inner(2).unwrap();
+            v_plane.copy_from_slice(v_input);
+        }
+
+        /*let yuv_buf = YUV420Buf {
             data: yuv,
             width: frame_width as usize,
             height: frame_height as usize,
         };
         frame_counter += 1;
+
         let mut frame = av_data::frame::Frame {
             kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
                 yuv_buf.width,
@@ -185,10 +221,10 @@ pub fn capture_camera(
             t: t.clone(),
         };
 
-        frame.t.pts = Some(frame_counter);
+        frame.t.pts = Some(frame_counter);*/
 
         // test encoding
-        if let Err(e) = encoder.encode(&frame) {
+        if let Err(e) = encoder.encode(&av_frame) {
             eprintln!("encoding error: {e}");
             continue;
         }
