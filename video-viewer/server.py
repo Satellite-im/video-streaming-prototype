@@ -8,9 +8,13 @@ def letter_f():
 def get_style():
 	return static_file("style.css", root='./static')
 
-@route('/static/webgl-script.js')
-def get_webgl_script():
-	return static_file("webgl_script.js", root='./static')
+@route('/static/webgl-yuv.js')
+def get_webgl_yuv():
+	return static_file("webgl_yuv.js", root='./static')
+
+@route('/static/webgl-rgb.js')
+def get_webgl_rgb():
+	return static_file("webgl_rgb.js", root='./static')
 
 @route('/')
 def hello():
@@ -23,5 +27,9 @@ def yuv_image():
 @route('/yuv-stream')
 def yuv_stream():
 	return template('views/yuv-stream.html')
+
+@route('/rgb-stream')
+def rgb_stream():
+	return template('views/rgb-stream.html')
 
 run(host='localhost', port=8080, debug=True)

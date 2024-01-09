@@ -1,1 +1,0 @@
-../../src/app/webgl_script.js
