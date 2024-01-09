@@ -53,7 +53,7 @@ pub fn capture_camera(
         .into_iter()
         .reduce(|s1, s2| {
             // Choose RGB with 8 bit depth
-            if s1.pixfmt == PixelFormat::Rgb(24) && s2.pixfmt != PixelFormat::Rgb(24) {
+            if s1.pixfmt == PixelFormat::Rgb(8) && s2.pixfmt != PixelFormat::Rgb(8) {
                 return s1;
             }
 
@@ -123,13 +123,21 @@ pub fn capture_camera(
 
     let (tx, rx) = std::sync::mpsc::channel();
     let should_quit2 = should_quit.clone();
-    std::thread::spawn(move || loop {
+    tokio::task::spawn_blocking(move || loop {
         if should_quit2.load(Ordering::Relaxed) {
             println!("quitting camera capture tx thread");
             return;
         }
-        let buf = stream.next().unwrap().unwrap();
-        tx.send(buf.to_vec()).unwrap();
+        if let Some(r) = stream.next() {
+            match r {
+                Ok(buf) => {
+                    if let Err(e) = tx.send(buf.to_vec()) {
+                        eprintln!("failed to send camera frame to video task: {e}");
+                    }
+                }
+                Err(e) => eprintln!("failed to receive camera frame: {e}"),
+            }
+        }
     });
     let mut frame_counter = 0;
     while let Ok(frame) = rx.recv() {

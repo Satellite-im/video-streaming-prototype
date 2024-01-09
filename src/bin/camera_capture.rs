@@ -21,7 +21,7 @@ async fn main() {
     let tx2 = tx.clone();
     let should_quit = Arc::new(AtomicBool::new(false));
     let should_quit2 = should_quit.clone();
-    std::thread::spawn(move || {
+    tokio::task::spawn_blocking(move || {
         if let Err(e) = video::capture_camera(tx2, should_quit2) {
             eprintln!("camera capture failed: {e}");
         }
