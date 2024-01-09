@@ -9,8 +9,6 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
-use av_data::frame::{Frame, VideoInfo};
-use av_data::rational::*;
 use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
 use eye::{
     colorconvert::Device,
@@ -20,12 +18,10 @@ use eye::{
         PlatformContext,
     },
 };
-use image::ImageBuffer;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Instant;
 use tokio::sync::broadcast;
 
 use libaom::{decoder::AV1Decoder, encoder::*};
@@ -85,7 +81,7 @@ pub fn capture_camera(
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512;
     let frame_height = 512;
-    let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
+    //let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
     let t = TimeInfo {
         pts: Some(0),
@@ -114,24 +110,6 @@ pub fn capture_camera(
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };
-
-    // encoder
-    //     .control(4 /*AOME_SET_CQ_LEVEL*/, 4)
-    //     .map_err(|e: u32| anyhow::anyhow!("encoder.control failed: {e}"))?;
-    // encoder
-    //     .control(2 /*AOME_SET_CPUUSED*/, 2)
-    //     .map_err(|e| anyhow::anyhow!("encoder.control failed: {e}"))?;
-
-    /*let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
-        Ok(r) => r,
-        Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
-    };
-    encoder_config.g_h = frame_height as u32;
-    encoder_config.g_w = frame_width as u32;
-    let mut encoder = match encoder_config.get_encoder() {
-        Ok(r) => r,
-        Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
-    };*/
 
     let pixel_format = av_data::pixel::formats::YUV420;
     let pixel_format = Arc::new(pixel_format.clone());
@@ -201,16 +179,6 @@ pub fn capture_camera(
 
         frame.t.pts = Some(frame_counter);
 
-        /*let v = VideoInfo::new(
-            frame_width as usize,
-            frame_height as usize,
-            false,
-            FrameType::OTHER,
-            pixel_format.clone(),
-        );
-
-        let frame = Frame::new_default_frame(v, Some(t.clone()));*/
-
         // test encoding
         if let Err(e) = encoder.encode(&frame) {
             eprintln!("encoding error: {e}");
@@ -233,7 +201,7 @@ pub fn capture_camera(
                     eprintln!("failed to extract Y plane from frame");
                     continue;
                 };
-                let Ok(y_stride) = frame.linesize(0) else {
+                let Ok(_y_stride) = frame.linesize(0) else {
                     eprintln!("failed to get stride for Y plane");
                     continue;
                 };
@@ -241,7 +209,7 @@ pub fn capture_camera(
                     eprintln!("failed to extract Cb plane from frame");
                     continue;
                 };
-                let Ok(u_stride) = frame.linesize(1) else {
+                let Ok(_u_stride) = frame.linesize(1) else {
                     eprintln!("failed to get stride for U plane");
                     continue;
                 };
@@ -249,7 +217,7 @@ pub fn capture_camera(
                     eprintln!("failed to extract Cr plane from frame");
                     continue;
                 };
-                let Ok(v_stride) = frame.linesize(2) else {
+                let Ok(_v_stride) = frame.linesize(2) else {
                     eprintln!("failed to get stride for V plane");
                     continue;
                 };
