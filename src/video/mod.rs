@@ -9,6 +9,7 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
+use av_data::frame::{Frame, VideoInfo};
 use av_data::rational::*;
 use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
 use eye::{
@@ -86,22 +87,42 @@ pub fn capture_camera(
     let frame_height = 512;
     let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
-    /*let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let t = TimeInfo {
+        pts: Some(0),
+        dts: Some(0),
+        duration: Some(1),
+        timebase: Some(Rational64::new(1, 1000)),
+        user_private: None,
+    };
+
+    let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
     av1_cfg = av1_cfg
+        .usage(AomUsage::RealTime)
+        .rc_min_quantizer(0 /*determine programmatically */)
+        .rc_max_quantizer(0 /*determine programmatically */)
+        .rc_end_usage(1 /*AOM_CBR*/)
+        .threads(4 /*max threads*/)
+        .profile(BitstreamProfile::Profile0 /*8 bit 4:2:0*/)
         .width(frame_width)
         .height(frame_height)
+        .bit_depth(8)
+        .input_bit_depth(8)
         .timebase(Rational64::new(1, 1000))
-        .rc_min_quantizer(0)
-        .rc_min_quantizer(0)
-        .threads(4)
         .pass(0 /*AOM_RC_ONE_PASS*/);
 
     let mut encoder = match av1_cfg.get_encoder() {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
-    };*/
+    };
 
-    let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
+    // encoder
+    //     .control(4 /*AOME_SET_CQ_LEVEL*/, 4)
+    //     .map_err(|e: u32| anyhow::anyhow!("encoder.control failed: {e}"))?;
+    // encoder
+    //     .control(2 /*AOME_SET_CPUUSED*/, 2)
+    //     .map_err(|e| anyhow::anyhow!("encoder.control failed: {e}"))?;
+
+    /*let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
     };
@@ -110,7 +131,7 @@ pub fn capture_camera(
     let mut encoder = match encoder_config.get_encoder() {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
-    };
+    };*/
 
     let pixel_format = av_data::pixel::formats::YUV420;
     let pixel_format = Arc::new(pixel_format.clone());
@@ -165,8 +186,8 @@ pub fn capture_camera(
             width: frame_width as usize,
             height: frame_height as usize,
         };
-
-        let frame = av_data::frame::Frame {
+        frame_counter += 1;
+        let mut frame = av_data::frame::Frame {
             kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
                 yuv_buf.width,
                 yuv_buf.height,
@@ -175,13 +196,20 @@ pub fn capture_camera(
                 pixel_format.clone(),
             )),
             buf: Box::new(yuv_buf),
-            t: TimeInfo {
-                pts: Some(frame_counter as i64 * 30),
-                ..Default::default()
-            },
+            t: t.clone(),
         };
 
-        frame_counter += 1;
+        frame.t.pts = Some(frame_counter);
+
+        /*let v = VideoInfo::new(
+            frame_width as usize,
+            frame_height as usize,
+            false,
+            FrameType::OTHER,
+            pixel_format.clone(),
+        );
+
+        let frame = Frame::new_default_frame(v, Some(t.clone()));*/
 
         // test encoding
         if let Err(e) = encoder.encode(&frame) {
@@ -191,38 +219,73 @@ pub fn capture_camera(
 
         // test decoding
         while let Some(packet) = encoder.get_packet() {
-            if let AOMPacket::Packet(p) = packet {
-                if let Err(e) = decoder.decode(&p.data, None) {
-                    eprintln!("decoding error: {e}");
-                    continue;
-                }
+            let AOMPacket::Packet(p) = packet else {
+                continue;
+            };
+            if let Err(e) = decoder.decode(&p.data, None) {
+                eprintln!("decoding error: {e}");
+                continue;
+            }
 
-                while let Some((decoded_frame, _opt)) = decoder.get_frame() {
-                    let frame = decoded_frame.buf;
-                    let Ok(y) = frame.as_slice_inner(0) else {
-                        eprintln!("failed to extract Y plane from frame");
-                        continue;
-                    };
-                    let Ok(u) = frame.as_slice_inner(1) else {
-                        eprintln!("failed to extract Cb plane from frame");
-                        continue;
-                    };
-                    let Ok(v) = frame.as_slice_inner(2) else {
-                        eprintln!("failed to extract Cr plane from frame");
-                        continue;
-                    };
-                    println!(
-                        "sending frame of size {}, {}, {}",
-                        y.len(),
-                        u.len(),
-                        v.len()
-                    );
-                    let _ = frame_tx.send(YuvFrame {
-                        y: y.to_vec(),
-                        u: u.to_vec(),
-                        v: v.to_vec(),
-                    });
-                }
+            while let Some((decoded_frame, _opt)) = decoder.get_frame() {
+                let frame = decoded_frame.buf;
+                let Ok(y_buf) = frame.as_slice_inner(0) else {
+                    eprintln!("failed to extract Y plane from frame");
+                    continue;
+                };
+                let Ok(y_stride) = frame.linesize(0) else {
+                    eprintln!("failed to get stride for Y plane");
+                    continue;
+                };
+                let Ok(u_buf) = frame.as_slice_inner(1) else {
+                    eprintln!("failed to extract Cb plane from frame");
+                    continue;
+                };
+                let Ok(u_stride) = frame.linesize(1) else {
+                    eprintln!("failed to get stride for U plane");
+                    continue;
+                };
+                let Ok(v_buf) = frame.as_slice_inner(2) else {
+                    eprintln!("failed to extract Cr plane from frame");
+                    continue;
+                };
+                let Ok(v_stride) = frame.linesize(2) else {
+                    eprintln!("failed to get stride for V plane");
+                    continue;
+                };
+
+                // let mut y = vec![];
+                // y.reserve(512 * 512);
+                // let mut u = vec![];
+                // u.reserve(256 * 256);
+                // let mut v = vec![];
+                // v.reserve(256 * 256);
+
+                // for row in y_buf.chunks_exact(y_stride) {
+                //     y.extend_from_slice(&row[0..512]);
+                // }
+                // for row in u_buf.chunks_exact(u_stride) {
+                //     u.extend_from_slice(&row[0..256]);
+                // }
+                // for row in v_buf.chunks_exact(v_stride) {
+                //     v.extend_from_slice(&row[0..256]);
+                // }
+
+                // due to the implementation of FrameBuf for Yuv420BUf, the above code isn't needed.
+                let y = y_buf;
+                let u = u_buf;
+                let v = v_buf;
+                println!(
+                    "sending frame of size {}, {}, {}",
+                    y.len(),
+                    u.len(),
+                    v.len()
+                );
+                let _ = frame_tx.send(YuvFrame {
+                    y: y.to_vec(),
+                    u: u.to_vec(),
+                    v: v.to_vec(),
+                });
             }
         }
     }

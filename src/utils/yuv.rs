@@ -75,7 +75,7 @@ impl av_data::frame::FrameBuffer for YUV420Buf {
         let base_u = self.width * self.height;
         let base_v = base_u + (base_u / 4);
         match idx {
-            0 => Ok(&mut self.data[0..self.width * self.height]),
+            0 => Ok(&mut self.data[0..base_u]),
             1 => Ok(&mut self.data[base_u..base_v]),
             2 => Ok(&mut self.data[base_v..]),
             _ => Err(av_data::frame::FrameError::InvalidIndex),
