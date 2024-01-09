@@ -53,7 +53,7 @@ pub fn capture_camera(
         .into_iter()
         .reduce(|s1, s2| {
             // Choose RGB with 8 bit depth
-            if s1.pixfmt == PixelFormat::Rgb(8) && s2.pixfmt != PixelFormat::Rgb(8) {
+            if s1.pixfmt == PixelFormat::Rgb(24) && s2.pixfmt != PixelFormat::Rgb(24) {
                 return s1;
             }
 
