@@ -1,5 +1,7 @@
 // shamelessly stolen from here: https://github.com/hanguk0726/Avatar-Vision/blob/main/rust/src/tools/image_processing.rs
 
+use openh264::formats::YUVSource;
+
 pub const Y_SCALE: [[f32; 3]; 3] = [
     [0.2578125, 0.50390625, 0.09765625],
     [0.299, 0.587, 0.114],
@@ -159,4 +161,43 @@ pub fn rgb_to_yuv420(rgb: &[u8],  width: usize, height: usize, input_width: usiz
         }
     }
     yuv
+}
+
+
+
+impl YUVSource for YUV420Buf {
+    fn width(&self) -> i32 {
+        self.width as i32
+    }
+
+    fn height(&self) -> i32 {
+        self.height as i32
+    }
+
+    fn y(&self) -> &[u8] {
+        &self.data[0..self.width * self.height]
+    }
+
+    fn u(&self) -> &[u8] {
+        let base = self.width * self.height;
+        &self.data[base..base + base / 4]
+    }
+
+    fn v(&self) -> &[u8] {
+        let base_u = self.width * self.height;
+        let base_v = base_u + (base_u / 4);
+        &self.data[base_v..]
+    }
+
+    fn y_stride(&self) -> i32 {
+        self.width as _
+    }
+
+    fn u_stride(&self) -> i32 {
+        self.width as i32 / 2
+    }
+
+    fn v_stride(&self) -> i32 {
+        self.width as i32 / 2
+    }
 }

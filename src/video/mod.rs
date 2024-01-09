@@ -8,6 +8,11 @@
 
 use crate::utils::yuv::*;
 
+
+use openh264::decoder::Decoder;
+use openh264::{nal_units, OpenH264API};
+use openh264::encoder::{Encoder, EncoderConfig};
+
 use anyhow::bail;
 use av_data::rational::*;
 use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
@@ -86,7 +91,7 @@ pub fn capture_camera(
     let frame_height = 512;
     let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
-    let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
+    /*let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
     av1_cfg = av1_cfg
         .width(frame_width)
         .height(frame_height)
@@ -99,6 +104,18 @@ pub fn capture_camera(
     let mut encoder = match av1_cfg.get_encoder() {
         Ok(r) => r,
         Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
+    };*/
+
+
+    let mut encoder_config = match AV1EncoderConfig::new_with_usage(AomUsage::RealTime) {
+        Ok(r) => r,
+        Err(e) => bail!("failed to get Av1EncoderConfig: {e:?}"),
+    };
+    encoder_config.g_h = frame_height as u32;
+    encoder_config.g_w = frame_width as u32;
+    let mut encoder = match encoder_config.get_encoder() {
+        Ok(r) => r,
+        Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
     };
 
     let pixel_format = av_data::pixel::formats::YUV420;
@@ -107,9 +124,15 @@ pub fn capture_camera(
     // configure av1 decoder
     let mut decoder = AV1Decoder::<()>::new().map_err(|e| anyhow::anyhow!(e))?;
 
+
+    let config = EncoderConfig::new(512, 512);
+    let api = OpenH264API::from_source();
+    let mut h264_encoder = Encoder::with_config(api, config)?;
+    let api = OpenH264API::from_source();
+    let mut h264_decoder = Decoder::new(api)?;
+
     // Start the camera capture
     let mut stream = dev.start_stream(&stream_descr)?;
-    let start = Instant::now();
     println!("starting stream with description: {stream_descr:?}");
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -122,7 +145,7 @@ pub fn capture_camera(
         let buf = stream.next().unwrap().unwrap();
         tx.send(buf.to_vec()).unwrap();
     });
-
+    let mut frame_counter = 0;
     while let Ok(frame) = rx.recv() {
         //println!("got frame");
         if should_quit.load(Ordering::Relaxed) {
@@ -131,15 +154,16 @@ pub fn capture_camera(
         }
 
         let yuv = rgb_to_yuv420(
-            &frame, 
-             frame_width as _, 
-             frame_height as _, 
-             stream_descr.width as _,
-             stream_descr.height as _,
-             color_scale
-            );
+            &frame,
+            frame_width as _,
+            frame_height as _,
+            stream_descr.width as _,
+            stream_descr.height as _,
+            color_scale,
+        );
 
-        let (y, uv) = yuv.split_at(frame_width as usize * frame_height as usize);
+        // this is to test the webgl code separately from the libaom code
+        /*let (y, uv) = yuv.split_at(frame_width as usize * frame_height as usize);
         let (u, v) = uv.split_at(uv.len() / 2);
         let _ = frame_tx.send(YuvFrame {
             y: y.to_vec(),
@@ -147,7 +171,7 @@ pub fn capture_camera(
             v: v.to_vec(),
         });
 
-        continue;
+        continue;*/
 
         let yuv_buf = YUV420Buf {
             data: yuv,
@@ -155,7 +179,28 @@ pub fn capture_camera(
             height: frame_height as usize,
         };
 
-        let frame = av_data::frame::Frame {
+        let bitstream = h264_encoder.encode(&yuv_buf)?;
+
+        for packet in nal_units(&bitstream.to_vec()) {
+            // On the first few frames this may fail, so you should check the result
+            // a few packets before giving up.
+            if let Ok(Some(yuv)) = h264_decoder.decode(packet) {
+                let y = yuv.y_with_stride();
+                let u = yuv.u_with_stride();
+                let v = yuv.v_with_stride();
+
+                let _ = frame_tx.send(YuvFrame {
+                    y: y[0..512*512].to_vec(),
+                    u: u[0..256*256].to_vec(),
+                    v: v[0..256*256].to_vec(),
+                });
+
+            } else {
+                continue;
+            }
+        }
+
+        /*let frame = av_data::frame::Frame {
             kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
                 yuv_buf.width,
                 yuv_buf.height,
@@ -165,12 +210,12 @@ pub fn capture_camera(
             )),
             buf: Box::new(yuv_buf),
             t: TimeInfo {
-                pts: Some(start.elapsed().as_millis() as i64),
-                duration: Some(fps as u64),
-                timebase: Some(Rational64::new(1, 1000)),
+                pts: Some(frame_counter as i64 * 30),
                 ..Default::default()
             },
         };
+
+        frame_counter += 1;
 
         // test encoding
         if let Err(e) = encoder.encode(&frame) {
@@ -213,7 +258,7 @@ pub fn capture_camera(
                     });
                 }
             }
-        }
+        }*/
     }
 
     Ok(())
