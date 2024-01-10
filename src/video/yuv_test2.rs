@@ -109,7 +109,7 @@ pub fn capture_stream(
     });
 
     while let Ok(frame) = rx.recv() {
-        //println!("got frame");
+        println!("got frame");
         if should_quit.load(Ordering::Relaxed) {
             println!("quitting camera capture rx thread");
             break;
@@ -128,9 +128,9 @@ pub fn capture_stream(
         let mut frame = encoder_ctx.new_frame();
         let (y, uv) = yuv.split_at(frame_width * frame_height);
         let (u, v) = uv.split_at(uv.len() / 2);
-        frame.planes[0].copy_from_raw_u8(&y, frame_width * frame_width, 1);
-        frame.planes[1].copy_from_raw_u8(&u, frame_width * frame_width / 4, 1);
-        frame.planes[2].copy_from_raw_u8(&v, frame_width * frame_width / 4, 1);
+        frame.planes[0].copy_from_raw_u8(&y, frame_width, 1);
+        frame.planes[1].copy_from_raw_u8(&u, frame_width / 2, 1);
+        frame.planes[2].copy_from_raw_u8(&v, frame_width / 2, 1);
 
         if let Err(e) = encoder_ctx.send_frame(frame) {
             eprintln!("error sending frame to encoder: {e}");
@@ -153,52 +153,52 @@ pub fn capture_stream(
             };
             if let Err(e) = decoder.send_data(packet.data, None, None, None) {
                 eprintln!("error sending data to decoder: {e}");
+                continue;
             }
-        }
-
-        loop {
-            let plane = match decoder.get_picture() {
-                Ok(p) => p,
-                Err(e) => {
-                    if !matches!(e, dav1d::Error::Again) {
-                        eprintln!("error getting picture from decoder: {e}");
+            loop {
+                let plane = match decoder.get_picture() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        if !matches!(e, dav1d::Error::Again) {
+                            eprintln!("error getting picture from decoder: {e}");
+                        }
+                        break;
                     }
-                    break;
+                };
+
+                println!("got picture");
+
+                let y_stride = plane.stride(dav1d::PlanarImageComponent::Y);
+                let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
+                let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
+
+                // this may be slow. does an extra copy
+                let y_plane = plane.plane(dav1d::PlanarImageComponent::Y);
+                let u_plane = plane.plane(dav1d::PlanarImageComponent::U);
+                let v_plane = plane.plane(dav1d::PlanarImageComponent::V);
+
+                let mut y = vec![];
+                y.reserve(frame_width * frame_height);
+                let mut u = vec![];
+                u.reserve(y.len() / 4);
+                let mut v = vec![];
+                v.reserve(y.len() / 4);
+
+                for row in y_plane.chunks_exact(y_stride as _) {
+                    y.extend_from_slice(&row[0..frame_width]);
                 }
-            };
+                for row in u_plane.chunks_exact(u_stride as _) {
+                    u.extend_from_slice(&row[0..frame_width / 2]);
+                }
+                for row in v_plane.chunks_exact(v_stride as _) {
+                    v.extend_from_slice(&row[0..frame_width / 2]);
+                }
 
-            println!("got picture");
+                y.append(&mut u);
+                y.append(&mut v);
 
-            let y_stride = plane.stride(dav1d::PlanarImageComponent::Y);
-            let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
-            let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
-
-            // this may be slow. does an extra copy
-            let y_plane = plane.plane(dav1d::PlanarImageComponent::Y);
-            let u_plane = plane.plane(dav1d::PlanarImageComponent::U);
-            let v_plane = plane.plane(dav1d::PlanarImageComponent::V);
-
-            let mut y = vec![];
-            y.reserve(frame_width * frame_height);
-            let mut u = vec![];
-            u.reserve(y.len() / 4);
-            let mut v = vec![];
-            v.reserve(y.len() / 4);
-
-            for row in y_plane.chunks_exact(y_stride as _) {
-                y.extend_from_slice(&row[0..frame_width]);
+                let _ = frame_tx.send(y);
             }
-            for row in u_plane.chunks_exact(u_stride as _) {
-                u.extend_from_slice(&row[0..frame_width / 2]);
-            }
-            for row in v_plane.chunks_exact(v_stride as _) {
-                v.extend_from_slice(&row[0..frame_width / 2]);
-            }
-
-            y.append(&mut u);
-            y.append(&mut v);
-
-            let _ = frame_tx.send(y);
         }
     }
 
