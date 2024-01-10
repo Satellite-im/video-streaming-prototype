@@ -9,7 +9,7 @@ use futures_util::sink::SinkExt;
 use futures_util::StreamExt;
 use tokio::{net::TcpListener, sync::broadcast};
 use tokio_tungstenite::tungstenite::protocol::Message;
-use video_streaming_prototype::video::{self, yuv_test::YuvFrame};
+use video_streaming_prototype::video::{self};
 
 #[tokio::main]
 async fn main() {
@@ -21,7 +21,7 @@ async fn main() {
     let should_quit = Arc::new(AtomicBool::new(false));
     let should_quit2 = should_quit.clone();
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = video::yuv_test::capture_stream(tx2, should_quit2) {
+        if let Err(e) = video::yuv_test2::capture_stream(tx2, should_quit2) {
             eprintln!("camera capture failed: {e}");
         }
         println!("closing video camera capture");
@@ -41,15 +41,8 @@ async fn main() {
                 let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
 
                 let (mut sink, _stream) = ws_stream.split();
-                while let Ok(YuvFrame {
-                    mut y,
-                    mut u,
-                    mut v,
-                }) = rx.recv().await
-                {
-                    y.append(&mut u);
-                    y.append(&mut v);
-                    if let Err(e) = sink.send(Message::Binary(y)).await {
+                while let Ok(frame) = rx.recv().await {
+                    if let Err(e) = sink.send(Message::Binary(frame)).await {
                         eprintln!("failed to send image: {e}");
                         break;
                     }

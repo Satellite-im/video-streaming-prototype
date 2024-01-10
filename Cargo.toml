@@ -19,6 +19,9 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal"
 tokio-tungstenite = "0.21"
 url = "2"
 
+rav1e = "0.7.0"
+dav1d = "0.10.2"
+
 dioxus = { version = "0.4.3" }
 dioxus-desktop = "0.4"
 dioxus-html = "0.4"
