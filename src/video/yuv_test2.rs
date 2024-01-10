@@ -52,6 +52,7 @@ pub fn capture_stream(
         .into_iter()
         // Choose RGB with 8 bit depth
         .filter(|s| matches!(s.pixfmt, PixelFormat::Rgb(24)))
+        .filter(|s| s.interval.as_millis() == 33)
         .reduce(|s1, s2| {
             let distance = |width: u32, height: u32| {
                 f32::sqrt(((1280 - width as i32).pow(2) + (720 - height as i32).pow(2)) as f32)
