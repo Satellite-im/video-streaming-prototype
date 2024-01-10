@@ -76,7 +76,7 @@ pub fn capture_stream(
     let frame_width = 512 as usize;
     let frame_height = 512 as usize;
 
-    let mut config = EncoderConfig::default();
+    let mut config = EncoderConfig::with_speed_preset(10);
     config.width = 512;
     config.height = 512;
     let cfg = Config::default().with_encoder_config(config);
