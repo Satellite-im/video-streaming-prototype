@@ -9,6 +9,7 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
+use av_data::{frame::FrameType, rational::Rational64, timeinfo::TimeInfo};
 use dav1d::{Decoder, Settings};
 use eye::{
     colorconvert::Device,
@@ -18,6 +19,7 @@ use eye::{
         PlatformContext,
     },
 };
+use libaom::encoder::{AOMPacket, AV1EncoderConfig, AomUsage, BitstreamProfile};
 use std::{
     ptr::slice_from_raw_parts,
     sync::{
@@ -26,8 +28,6 @@ use std::{
     },
 };
 use tokio::sync::broadcast;
-
-use rav1e::prelude::*;
 
 pub fn capture_stream(
     frame_tx: broadcast::Sender<Vec<u8>>,
@@ -72,12 +72,38 @@ pub fn capture_stream(
     // the camera will likely capture 1270x720. it's ok for width and height to be less than that.
     let frame_width = 512 as usize;
     let frame_height = 512 as usize;
+    let fps = 1000.0 / (stream_descr.interval.as_millis() as f64);
 
-    let mut config = EncoderConfig::with_speed_preset(0);
-    config.width = 512;
-    config.height = 512;
-    let cfg = Config::default().with_encoder_config(config);
-    let mut encoder_ctx: Context<u8> = cfg.new_context()?;
+    // warning: pixels in range [16, 235]
+    let pixel_format = av_data::pixel::formats::YUV420;
+    let pixel_format = Arc::new(pixel_format.clone());
+    let mut frame_counter = 0;
+    let t = TimeInfo {
+        pts: Some(0),
+        dts: Some(0),
+        duration: Some(1),
+        timebase: Some(Rational64::new(1, fps as _)),
+        user_private: None,
+    };
+    let mut av1_cfg = AV1EncoderConfig::new().map_err(|e| anyhow::anyhow!("{e}"))?;
+    av1_cfg = av1_cfg
+        .usage(AomUsage::RealTime)
+        .rc_min_quantizer(0 /*determine programmatically */)
+        .rc_max_quantizer(0 /*determine programmatically */)
+        .rc_end_usage(1 /*AOM_CBR*/)
+        .threads(4 /*max threads*/)
+        .profile(BitstreamProfile::Profile0 /*8 bit 4:2:0*/)
+        .width(frame_width as _)
+        .height(frame_height as _)
+        .bit_depth(8)
+        .input_bit_depth(8)
+        .timebase(t.timebase.unwrap())
+        .pass(0 /*AOM_RC_ONE_PASS*/);
+
+    let mut encoder = match av1_cfg.get_encoder() {
+        Ok(r) => r,
+        Err(e) => bail!("failed to get Av1Encoder: {e:?}"),
+    };
 
     let decoder_settings = Settings::default();
     let mut decoder = Decoder::with_settings(&decoder_settings)?;
@@ -109,24 +135,36 @@ pub fn capture_stream(
             ColorScale::Av,
         );
 
-        if let Err(e) = encoder_ctx.send_frame(frame) {
-            eprintln!("error sending frame to encoder: {e}");
-            if !matches!(e, EncoderStatus::EnoughData) {
-                continue;
-            }
+        let frame_type = if frame_counter % 30 == 0 {
+            FrameType::P
         } else {
-            //continue;
+            FrameType::I
+        };
+
+        let mut av_frame = av_data::frame::Frame {
+            kind: av_data::frame::MediaKind::Video(av_data::frame::VideoInfo::new(
+                frame_height,
+                frame_height,
+                false,
+                frame_type,
+                pixel_format.clone(),
+            )),
+            buf: Box::new(frame),
+            t: t.clone(),
+        };
+
+        av_frame.t.pts = Some(frame_counter);
+        frame_counter += 1;
+
+        // test encoding
+        if let Err(e) = encoder.encode(&av_frame) {
+            eprintln!("encoding error: {e}");
+            continue;
         }
 
-        loop {
-            let packet = match encoder_ctx.receive_packet() {
-                Ok(p) => p,
-                Err(e) => {
-                    if !matches!(e, EncoderStatus::NeedMoreData | EncoderStatus::Encoded) {
-                        eprintln!("error receiving packet from encoder: {e}");
-                    }
-                    break;
-                }
+        while let Some(packet) = encoder.get_packet() {
+            let AOMPacket::Packet(packet) = packet else {
+                continue;
             };
             if let Err(e) = decoder.send_data(packet.data, None, None, None) {
                 eprintln!("error sending data to decoder: {e}");

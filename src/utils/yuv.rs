@@ -170,6 +170,43 @@ pub fn rgb_to_yuv420(
     yuv
 }
 
+pub struct FrameAdapter {
+    inner: Frame<u8>,
+}
+
+impl av_data::frame::FrameBuffer for FrameAdapter {
+    fn linesize(&self, idx: usize) -> Result<usize, av_data::frame::FrameError> {
+        let plane = self
+            .inner
+            .planes
+            .get(idx)
+            .ok_or(av_data::frame::FrameError::InvalidIndex)?;
+        Ok(plane.cfg.stride)
+    }
+
+    fn count(&self) -> usize {
+        self.inner.planes.len()
+    }
+
+    fn as_slice_inner(&self, idx: usize) -> Result<&[u8], av_data::frame::FrameError> {
+        let plane = self
+            .inner
+            .planes
+            .get(idx)
+            .ok_or(av_data::frame::FrameError::InvalidIndex)?;
+        Ok(plane.data_origin())
+    }
+
+    fn as_mut_slice_inner(&mut self, idx: usize) -> Result<&mut [u8], av_data::frame::FrameError> {
+        let plane = self
+            .inner
+            .planes
+            .get_mut(idx)
+            .ok_or(av_data::frame::FrameError::InvalidIndex)?;
+        Ok(plane.data_origin_mut())
+    }
+}
+
 // u and v are calculated by averaging a 4-pixel square
 pub fn rgb_to_yuv4202(
     rgb: &[u8],
@@ -178,7 +215,7 @@ pub fn rgb_to_yuv4202(
     input_width: usize,
     input_height: usize,
     color_scale: ColorScale,
-) -> Frame<u8> {
+) -> FrameAdapter {
     let mut frame = Frame::<u8>::new_with_padding(width, height, ChromaSampling::Cs420, width / 4);
     let y_stride = frame.planes.get(0).unwrap().cfg.stride;
     let u_stride = frame.planes.get(1).unwrap().cfg.stride;
@@ -253,5 +290,5 @@ pub fn rgb_to_yuv4202(
             write_v(&mut frame, i, j, avg_pix);
         }
     }
-    frame
+    FrameAdapter { inner: frame }
 }
