@@ -169,10 +169,10 @@ pub fn capture_stream(
                 let y_plane =
                     unsafe { &*slice_from_raw_parts(y_plane, y_stride as usize * frame_height) };
                 let u_plane = unsafe {
-                    &*slice_from_raw_parts(u_plane, y_stride as usize * frame_height / 2)
+                    &*slice_from_raw_parts(u_plane, u_stride as usize * frame_height / 2)
                 };
                 let v_plane = unsafe {
-                    &*slice_from_raw_parts(v_plane, y_stride as usize * frame_height / 2)
+                    &*slice_from_raw_parts(v_plane, v_stride as usize * frame_height / 2)
                 };
 
                 let mut y = vec![];
