@@ -9,12 +9,6 @@
 use crate::utils::yuv::*;
 
 use anyhow::bail;
-use av_data::{
-    frame::{FrameType, MediaKind, VideoInfo},
-    pixel::{ColorModel, TrichromaticEncodingSystem, YUVRange, YUVSystem},
-    rational::Rational64,
-    timeinfo::TimeInfo,
-};
 use dav1d::{Decoder, Settings};
 use eye::{
     colorconvert::Device,
@@ -24,9 +18,12 @@ use eye::{
         PlatformContext,
     },
 };
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    ptr::slice_from_raw_parts,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::broadcast;
 
@@ -115,7 +112,7 @@ pub fn capture_stream(
             break;
         }
 
-        let yuv = rgb_to_yuv420(
+        let frame = rgb_to_yuv4202(
             &frame,
             frame_width,
             frame_height,
@@ -123,14 +120,6 @@ pub fn capture_stream(
             stream_descr.height as _,
             ColorScale::Av,
         );
-        drop(frame);
-
-        let mut frame = encoder_ctx.new_frame();
-        let (y, uv) = yuv.split_at(frame_width * frame_height);
-        let (u, v) = uv.split_at(uv.len() / 2);
-        frame.planes[0].copy_from_raw_u8(&y, frame_width, 1);
-        frame.planes[1].copy_from_raw_u8(&u, frame_width / 2, 1);
-        frame.planes[2].copy_from_raw_u8(&v, frame_width / 2, 1);
 
         if let Err(e) = encoder_ctx.send_frame(frame) {
             eprintln!("error sending frame to encoder: {e}");
@@ -172,10 +161,19 @@ pub fn capture_stream(
                 let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
                 let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
 
-                // this may be slow. does an extra copy
-                let y_plane = plane.plane(dav1d::PlanarImageComponent::Y);
-                let u_plane = plane.plane(dav1d::PlanarImageComponent::U);
-                let v_plane = plane.plane(dav1d::PlanarImageComponent::V);
+                let y_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::Y) as *const u8;
+                let u_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::U) as *const u8;
+                let v_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::V) as *const u8;
+
+                // todo: make the webgl code worry about the stride. then the entire plane can just be passed over.
+                let y_plane =
+                    unsafe { &*slice_from_raw_parts(y_plane, y_stride as usize * frame_height) };
+                let u_plane = unsafe {
+                    &*slice_from_raw_parts(u_plane, y_stride as usize * frame_height / 2)
+                };
+                let v_plane = unsafe {
+                    &*slice_from_raw_parts(v_plane, y_stride as usize * frame_height / 2)
+                };
 
                 let mut y = vec![];
                 y.reserve(frame_width * frame_height);

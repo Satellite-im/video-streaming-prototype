@@ -1,5 +1,7 @@
 // shamelessly stolen from here: https://github.com/hanguk0726/Avatar-Vision/blob/main/rust/src/tools/image_processing.rs
 
+use rav1e::{color::ChromaSampling, prelude::v_frame::plane::PlaneOffset, Frame};
+
 pub const Y_SCALE: [[f32; 3]; 3] = [
     [0.2578125, 0.50390625, 0.09765625],
     [0.299, 0.587, 0.114],
@@ -166,4 +168,89 @@ pub fn rgb_to_yuv420(
         }
     }
     yuv
+}
+
+// u and v are calculated by averaging a 4-pixel square
+pub fn rgb_to_yuv4202(
+    rgb: &[u8],
+    width: usize,
+    height: usize,
+    input_width: usize,
+    input_height: usize,
+    color_scale: ColorScale,
+) -> Frame<u8> {
+    let mut frame = Frame::<u8>::new_with_padding(width, height, ChromaSampling::Cs420, width / 4);
+
+    let half_width = width / 2;
+
+    // assumes input height and width are >= output height and width
+    let width_diff = input_width - width;
+    let height_diff = input_height - height;
+    let width_margin = width_diff / 2;
+    let height_margin = height_diff / 2;
+
+    // y is full size, u, v is quarter size
+    let pixel = |x: usize, y: usize| -> (f32, f32, f32) {
+        let x = x + width_margin;
+        let y = y + height_margin;
+        // two dim to single dim
+        let base_pos = (x + y * input_width) * 3;
+        (
+            rgb[base_pos] as f32,
+            rgb[base_pos + 1] as f32,
+            rgb[base_pos + 2] as f32,
+        )
+    };
+
+    let color_scale_idx = color_scale.to_idx();
+    let y_scale: &[f32; 3] = &Y_SCALE[color_scale_idx];
+    let u_scale: &[f32; 3] = &U_SCALE[color_scale_idx];
+    let v_scale: &[f32; 3] = &V_SCALE[color_scale_idx];
+
+    let y_offset = Y_OFFSET[color_scale_idx];
+    let u_offset = U_OFFSET[color_scale_idx];
+    let v_offset = V_OFFSET[color_scale_idx];
+
+    let write_y = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
+        let out = frame.planes.get_mut(0).unwrap();
+        out.data_origin_mut()[x + y * width] =
+            (y_scale[0] * rgb.0 + y_scale[1] * rgb.1 + y_scale[2] * rgb.2 + y_offset) as u8;
+    };
+
+    let write_u = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
+        let out = frame.planes.get_mut(1).unwrap();
+        out.data_origin_mut()[x + y * half_width] =
+            (u_scale[0] * rgb.0 + u_scale[1] * rgb.1 + u_scale[2] * rgb.2 + u_offset) as u8;
+    };
+
+    let write_v = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
+        let out = frame.planes.get_mut(2).unwrap();
+        out.data_origin_mut()[x + y * half_width] =
+            (v_scale[0] * rgb.0 + v_scale[1] * rgb.1 + v_scale[2] * rgb.2 + v_offset) as u8;
+    };
+    for i in 0..width / 2 {
+        for j in 0..height / 2 {
+            let px = i * 2;
+            let py = j * 2;
+            let pix0x0 = pixel(px, py);
+            let pix0x1 = pixel(px, py + 1);
+            let pix1x0 = pixel(px + 1, py);
+            let pix1x1 = pixel(px + 1, py + 1);
+            let avg_pix = (
+                (pix0x0.0 as u32 + pix0x1.0 as u32 + pix1x0.0 as u32 + pix1x1.0 as u32) as f32
+                    / 4.0,
+                (pix0x0.1 as u32 + pix0x1.1 as u32 + pix1x0.1 as u32 + pix1x1.1 as u32) as f32
+                    / 4.0,
+                (pix0x0.2 as u32 + pix0x1.2 as u32 + pix1x0.2 as u32 + pix1x1.2 as u32) as f32
+                    / 4.0,
+            );
+            write_y(&mut frame, px, py, pix0x0);
+            write_y(&mut frame, px, py + 1, pix0x1);
+            write_y(&mut frame, px + 1, py, pix1x0);
+            write_y(&mut frame, px + 1, py + 1, pix1x1);
+            write_u(&mut frame, i, j, avg_pix);
+            write_v(&mut frame, i, j, avg_pix);
+        }
+    }
+    frame
 }
