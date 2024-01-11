@@ -86,7 +86,7 @@ pub fn capture_stream(
     let mut stream = dev.start_stream(&stream_descr)?;
     println!("starting stream with description: {stream_descr:?}");
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (camera_tx, camera_rx) = std::sync::mpsc::channel();
     let should_quit2 = should_quit.clone();
     tokio::task::spawn_blocking(move || loop {
         if should_quit2.load(Ordering::Relaxed) {
@@ -96,7 +96,7 @@ pub fn capture_stream(
         if let Some(r) = stream.next() {
             match r {
                 Ok(buf) => {
-                    if let Err(e) = tx.send(buf.to_vec()) {
+                    if let Err(e) = camera_tx.send(buf.to_vec()) {
                         eprintln!("failed to send camera frame to video task: {e}");
                     }
                 }
@@ -105,8 +105,78 @@ pub fn capture_stream(
         }
     });
 
-    while let Ok(frame) = rx.recv() {
-        println!("got frame");
+    let (encoder_tx, encoder_rx) = std::sync::mpsc::channel();
+    let should_quit2 = should_quit.clone();
+    tokio::task::spawn_blocking(move || loop {
+        if should_quit2.load(Ordering::Relaxed) {
+            println!("quitting decoder rx thread");
+            return;
+        }
+
+        let packet: Packet<u8> = match encoder_rx.recv() {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error receiving encoded frame: {e}");
+                break;
+            }
+        };
+
+        if let Err(e) = decoder.send_data(packet.data, None, None, None) {
+            eprintln!("error sending data to decoder: {e}");
+            continue;
+        }
+        loop {
+            let plane = match decoder.get_picture() {
+                Ok(p) => p,
+                Err(e) => {
+                    if !matches!(e, dav1d::Error::Again) {
+                        eprintln!("error getting picture from decoder: {e}");
+                    }
+                    break;
+                }
+            };
+
+            let y_stride = plane.stride(dav1d::PlanarImageComponent::Y);
+            let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
+            let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
+
+            let y_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::Y) as *const u8;
+            let u_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::U) as *const u8;
+            let v_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::V) as *const u8;
+
+            // todo: make the webgl code worry about the stride. then the entire plane can just be passed over.
+            let y_plane =
+                unsafe { &*slice_from_raw_parts(y_plane, y_stride as usize * frame_height) };
+            let u_plane =
+                unsafe { &*slice_from_raw_parts(u_plane, u_stride as usize * frame_height / 2) };
+            let v_plane =
+                unsafe { &*slice_from_raw_parts(v_plane, v_stride as usize * frame_height / 2) };
+
+            let mut y = vec![];
+            y.reserve(frame_width * frame_height);
+            let mut u = vec![];
+            u.reserve(y.len() / 4);
+            let mut v = vec![];
+            v.reserve(y.len() / 4);
+
+            for row in y_plane.chunks_exact(y_stride as _) {
+                y.extend_from_slice(&row[0..frame_width]);
+            }
+            for row in u_plane.chunks_exact(u_stride as _) {
+                u.extend_from_slice(&row[0..frame_width / 2]);
+            }
+            for row in v_plane.chunks_exact(v_stride as _) {
+                v.extend_from_slice(&row[0..frame_width / 2]);
+            }
+
+            y.append(&mut u);
+            y.append(&mut v);
+
+            let _ = frame_tx.send(y);
+        }
+    });
+
+    while let Ok(frame) = camera_rx.recv() {
         if should_quit.load(Ordering::Relaxed) {
             println!("quitting camera capture rx thread");
             break;
@@ -141,63 +211,8 @@ pub fn capture_stream(
                     break;
                 }
             };
-            if let Err(e) = decoder.send_data(packet.data, None, None, None) {
-                eprintln!("error sending data to decoder: {e}");
-                continue;
-            }
-            loop {
-                let plane = match decoder.get_picture() {
-                    Ok(p) => p,
-                    Err(e) => {
-                        if !matches!(e, dav1d::Error::Again) {
-                            eprintln!("error getting picture from decoder: {e}");
-                        }
-                        break;
-                    }
-                };
 
-                println!("got picture");
-
-                let y_stride = plane.stride(dav1d::PlanarImageComponent::Y);
-                let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
-                let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
-
-                let y_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::Y) as *const u8;
-                let u_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::U) as *const u8;
-                let v_plane = plane.plane_data_ptr(dav1d::PlanarImageComponent::V) as *const u8;
-
-                // todo: make the webgl code worry about the stride. then the entire plane can just be passed over.
-                let y_plane =
-                    unsafe { &*slice_from_raw_parts(y_plane, y_stride as usize * frame_height) };
-                let u_plane = unsafe {
-                    &*slice_from_raw_parts(u_plane, u_stride as usize * frame_height / 2)
-                };
-                let v_plane = unsafe {
-                    &*slice_from_raw_parts(v_plane, v_stride as usize * frame_height / 2)
-                };
-
-                let mut y = vec![];
-                y.reserve(frame_width * frame_height);
-                let mut u = vec![];
-                u.reserve(y.len() / 4);
-                let mut v = vec![];
-                v.reserve(y.len() / 4);
-
-                for row in y_plane.chunks_exact(y_stride as _) {
-                    y.extend_from_slice(&row[0..frame_width]);
-                }
-                for row in u_plane.chunks_exact(u_stride as _) {
-                    u.extend_from_slice(&row[0..frame_width / 2]);
-                }
-                for row in v_plane.chunks_exact(v_stride as _) {
-                    v.extend_from_slice(&row[0..frame_width / 2]);
-                }
-
-                y.append(&mut u);
-                y.append(&mut v);
-
-                let _ = frame_tx.send(y);
-            }
+            let _ = encoder_tx.send(packet);
         }
     }
 
