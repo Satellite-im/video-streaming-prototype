@@ -15,12 +15,12 @@ use video_streaming_prototype::video::{self};
 async fn main() {
     let (tx, mut rx) = broadcast::channel(128);
 
-    tokio::task::spawn_blocking(move || while rx.blocking_recv().is_ok() {});
+    std::thread::spawn(move || while rx.blocking_recv().is_ok() {});
 
     let tx2 = tx.clone();
     let should_quit = Arc::new(AtomicBool::new(false));
     let should_quit2 = should_quit.clone();
-    tokio::task::spawn_blocking(move || {
+    std::thread::spawn(move || {
         if let Err(e) = video::yuv_test2::capture_stream(tx2, should_quit2) {
             eprintln!("camera capture failed: {e}");
         }

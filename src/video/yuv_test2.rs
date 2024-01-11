@@ -19,11 +19,13 @@ use eye::{
     },
 };
 use std::{
+    ops::AddAssign,
     ptr::slice_from_raw_parts,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Instant,
 };
 use tokio::sync::broadcast;
 
@@ -88,12 +90,21 @@ pub fn capture_stream(
 
     let (camera_tx, camera_rx) = std::sync::mpsc::channel();
     let should_quit2 = should_quit.clone();
-    tokio::task::spawn_blocking(move || loop {
+    std::thread::spawn(move || loop {
         if should_quit2.load(Ordering::Relaxed) {
             println!("quitting camera capture tx thread");
             return;
         }
+        let mut start = Instant::now();
+        let mut times = vec![];
         if let Some(r) = stream.next() {
+            let elapsed = start.elapsed().as_millis();
+            times.push(elapsed);
+            if times.len() >= 30 {
+                println!("times: {times:#?}");
+                times.clear()
+            }
+            start = Instant::now();
             match r {
                 Ok(buf) => {
                     if let Err(e) = camera_tx.send(buf.to_vec()) {
@@ -107,7 +118,7 @@ pub fn capture_stream(
 
     let (encoder_tx, encoder_rx) = std::sync::mpsc::channel();
     let should_quit2 = should_quit.clone();
-    tokio::task::spawn_blocking(move || loop {
+    std::thread::spawn(move || loop {
         if should_quit2.load(Ordering::Relaxed) {
             println!("quitting decoder rx thread");
             return;
