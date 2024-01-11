@@ -29,3 +29,4 @@ dioxus-html = "0.4"
 [profile.profiling]
 inherits = "release"
 debug = true
+panic = "abort"
