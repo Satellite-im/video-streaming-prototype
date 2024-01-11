@@ -86,35 +86,22 @@ pub fn capture_stream(
     let mut stream = dev.start_stream(&stream_descr)?;
     println!("starting stream with description: {stream_descr:?}");
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    let should_quit2 = should_quit.clone();
-    tokio::task::spawn_blocking(move || loop {
-        if should_quit2.load(Ordering::Relaxed) {
-            println!("quitting camera capture tx thread");
-            return;
-        }
-        if let Some(r) = stream.next() {
-            match r {
-                Ok(buf) => {
-                    if let Err(e) = tx.send(buf.to_vec()) {
-                        eprintln!("failed to send camera frame to video task: {e}");
-                    }
-                }
-                Err(e) => eprintln!("failed to receive camera frame: {e}"),
-            }
-        }
-    });
-
-    while let Ok(frame) = rx.recv() {
-        println!("got frame");
+    loop {
         if should_quit.load(Ordering::Relaxed) {
-            println!("quitting camera capture rx thread");
-            break;
+            bail!("quitting camera capture tx thread");
         }
+
+        let frame = match stream.next() {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => {
+                bail!("error getting frame from camera: {e}");
+            }
+            None => bail!("failed to get frame from camera"),
+        };
 
         // todo: use libyuv to convert from rgb to  yuv with hardware acceleration https://chromium.googlesource.com/libyuv/libyuv
         let frame = rgb_to_yuv4202(
-            &frame,
+            frame,
             frame_width,
             frame_height,
             stream_descr.width as _,
@@ -156,8 +143,6 @@ pub fn capture_stream(
                     }
                 };
 
-                println!("got picture");
-
                 let y_stride = plane.stride(dav1d::PlanarImageComponent::Y);
                 let u_stride = plane.stride(dav1d::PlanarImageComponent::U);
                 let v_stride = plane.stride(dav1d::PlanarImageComponent::V);
@@ -196,10 +181,8 @@ pub fn capture_stream(
                 y.append(&mut u);
                 y.append(&mut v);
 
-                let _ = frame_tx.send(y);
+                //let _ = frame_tx.send(y);
             }
         }
     }
-
-    Ok(())
 }
