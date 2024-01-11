@@ -112,6 +112,7 @@ pub fn capture_stream(
             break;
         }
 
+        // todo: use libyuv to convert from rgb to  yuv with hardware acceleration https://chromium.googlesource.com/libyuv/libyuv
         let frame = rgb_to_yuv4202(
             &frame,
             frame_width,
