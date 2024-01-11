@@ -180,8 +180,9 @@ pub fn rgb_to_yuv4202(
     color_scale: ColorScale,
 ) -> Frame<u8> {
     let mut frame = Frame::<u8>::new_with_padding(width, height, ChromaSampling::Cs420, width / 4);
-
-    let half_width = width / 2;
+    let y_stride = frame.planes.get(0).unwrap().cfg.stride;
+    let u_stride = frame.planes.get(1).unwrap().cfg.stride;
+    let v_stride = frame.planes.get(2).unwrap().cfg.stride;
 
     // assumes input height and width are >= output height and width
     let width_diff = input_width - width;
@@ -213,19 +214,19 @@ pub fn rgb_to_yuv4202(
 
     let write_y = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
         let out = frame.planes.get_mut(0).unwrap();
-        out.data_origin_mut()[x + y * width] =
+        out.data_origin_mut()[x + y * y_stride] =
             (y_scale[0] * rgb.0 + y_scale[1] * rgb.1 + y_scale[2] * rgb.2 + y_offset) as u8;
     };
 
     let write_u = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
         let out = frame.planes.get_mut(1).unwrap();
-        out.data_origin_mut()[x + y * half_width] =
+        out.data_origin_mut()[x + y * u_stride] =
             (u_scale[0] * rgb.0 + u_scale[1] * rgb.1 + u_scale[2] * rgb.2 + u_offset) as u8;
     };
 
     let write_v = |frame: &mut Frame<u8>, x: usize, y: usize, rgb: (f32, f32, f32)| {
         let out = frame.planes.get_mut(2).unwrap();
-        out.data_origin_mut()[x + y * half_width] =
+        out.data_origin_mut()[x + y * v_stride] =
             (v_scale[0] * rgb.0 + v_scale[1] * rgb.1 + v_scale[2] * rgb.2 + v_offset) as u8;
     };
     for i in 0..width / 2 {
