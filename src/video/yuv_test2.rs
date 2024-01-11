@@ -90,18 +90,19 @@ pub fn capture_stream(
 
     let (camera_tx, camera_rx) = std::sync::mpsc::channel();
     let should_quit2 = should_quit.clone();
+    let mut start = Instant::now();
+    let mut times = vec![];
     std::thread::spawn(move || loop {
         if should_quit2.load(Ordering::Relaxed) {
             println!("quitting camera capture tx thread");
             return;
         }
-        let mut start = Instant::now();
-        let mut times = vec![];
+       
         if let Some(r) = stream.next() {
             let elapsed = start.elapsed().as_millis();
             times.push(elapsed);
             if times.len() >= 30 {
-                println!("times: {times:#?}");
+              //  println!("times: {times:#?}");
                 times.clear()
             }
             start = Instant::now();
