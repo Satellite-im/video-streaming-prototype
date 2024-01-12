@@ -158,6 +158,9 @@ pub fn capture_stream(
         }
     });
 
+    let row_start = (stream_descr.height as usize - frame_height) / 2;
+    let col_start = ((stream_descr.width as usize - frame_width) / 2) * 3;
+
     // Frame is received as RGB.
     while let Ok(rgb_frame) = camera_rx.recv() {
         if should_quit.load(Ordering::Relaxed) {
@@ -168,8 +171,8 @@ pub fn capture_stream(
         let mut shortened_rgb = vec![];
         shortened_rgb.reserve(frame_width * frame_height * 3);
 
-        for row in rgb_frame.chunks_exact(stream_descr.width as usize * 3).take(frame_height) {
-            shortened_rgb.extend_from_slice(&row[0..frame_width * 3]);
+        for row in rgb_frame.chunks_exact(stream_descr.width as usize * 3).skip(row_start).take(frame_height) {
+            shortened_rgb.extend_from_slice(&row[col_start..col_start + frame_width * 3]);
         }
 
         let mut yuv_buffer = YUVBuffer::new(frame_width, frame_height);
