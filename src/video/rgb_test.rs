@@ -142,7 +142,11 @@ pub fn capture_stream(
         let half_height: usize = (stream_descr.height as usize - 512) / 2;
         let mut v = vec![];
         v.reserve(512 * 512 * 3);
-        for row in frame.chunks_exact(stream_descr.width as usize * 3).skip(half_height).take(512) {
+        for row in frame
+            .chunks_exact(stream_descr.width as usize * 3)
+            .skip(half_height)
+            .take(512)
+        {
             v.extend_from_slice(&row[(half_width * 3)..(half_width * 3 + 512 * 3)]);
         }
         let _ = frame_tx.send(v);

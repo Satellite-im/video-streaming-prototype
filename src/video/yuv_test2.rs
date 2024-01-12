@@ -97,12 +97,12 @@ pub fn capture_stream(
             println!("quitting camera capture tx thread");
             return;
         }
-       
+
         if let Some(r) = stream.next() {
             let elapsed = start.elapsed().as_millis();
             times.push(elapsed);
             if times.len() >= 30 {
-              //  println!("times: {times:#?}");
+                //  println!("times: {times:#?}");
                 times.clear()
             }
             start = Instant::now();

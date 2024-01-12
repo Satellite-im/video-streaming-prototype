@@ -17,6 +17,14 @@ use eye::{
         PlatformContext,
     },
 };
+use openh264::decoder::Decoder;
+use openh264::nal_units;
+use openh264::{
+    decoder::DecodedYUV,
+    encoder::{Encoder, EncoderConfig},
+    formats::YUVBuffer,
+    OpenH264API,
+};
 use std::{
     ops::AddAssign,
     ptr::slice_from_raw_parts,
@@ -27,9 +35,6 @@ use std::{
     time::Instant,
 };
 use tokio::sync::broadcast;
-use openh264::{encoder::{Encoder, EncoderConfig}, decoder::DecodedYUV, OpenH264API, formats::YUVBuffer};
-use openh264::decoder::Decoder;
-use openh264::nal_units;
 
 pub fn capture_stream(
     frame_tx: broadcast::Sender<Vec<u8>>,
@@ -95,12 +100,12 @@ pub fn capture_stream(
             println!("quitting camera capture tx thread");
             return;
         }
-       
+
         if let Some(r) = stream.next() {
             let elapsed = start.elapsed().as_millis();
             times.push(elapsed);
             if times.len() >= 30 {
-              //  println!("times: {times:#?}");
+                //  println!("times: {times:#?}");
                 times.clear()
             }
             start = Instant::now();
@@ -139,18 +144,19 @@ pub fn capture_stream(
                 Err(e) => {
                     eprintln!("error decoding packet: {e}");
                     continue;
-                },
+                }
                 Ok(None) => {
                     eprintln!("None yuv frame yet, continuing");
                     continue;
-                },
+                }
                 Ok(Some(f)) => f,
             };
             let mut target_rgb: Vec<u8> = Vec::new();
             target_rgb.reserve(frame_width * frame_height * 3);
             yuv_frame.write_rgb8(target_rgb);
             let _ = frame_tx.send(yuv_frame);
-    }});
+        }
+    });
 
     // Frame is received as RGB.
     while let Ok(rgb_frame) = camera_rx.recv() {
@@ -159,7 +165,7 @@ pub fn capture_stream(
             break;
         }
 
-        let mut yuv_buffer= YUVBuffer::new(frame_width, frame_height);
+        let mut yuv_buffer = YUVBuffer::new(frame_width, frame_height);
         yuv_buffer.read_rgb(&rgb_frame);
 
         // Encode YUV back into H.264.
