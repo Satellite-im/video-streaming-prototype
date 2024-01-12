@@ -80,7 +80,7 @@ pub fn capture_stream(
     let frame_width = 512 as usize;
     let frame_height = 512 as usize;
 
-    let config = EncoderConfig::new(frame_width, frame_height);
+    let config = EncoderConfig::new(frame_width as _, frame_height as _);
     let api = OpenH264API::from_source();
     let mut encoder = Encoder::with_config(api, config)?;
 
@@ -137,7 +137,7 @@ pub fn capture_stream(
         };
 
         // Split H.264 into NAL units and decode each.
-        for packet in nal_units(packet) {
+        for packet in nal_units(&packet) {
             // On the first few frames this may fail, so you should check the result
             // a few packets before giving up.
             let yuv_frame = match decoder.decode(packet) {
@@ -153,8 +153,8 @@ pub fn capture_stream(
             };
             let mut target_rgb: Vec<u8> = Vec::new();
             target_rgb.reserve(frame_width * frame_height * 3);
-            yuv_frame.write_rgb8(target_rgb);
-            let _ = frame_tx.send(yuv_frame);
+            yuv_frame.write_rgb8(&mut target_rgb);
+            let _ = frame_tx.send(target_rgb);
         }
     });
 
