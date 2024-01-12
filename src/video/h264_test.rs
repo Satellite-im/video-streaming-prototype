@@ -25,6 +25,7 @@ use openh264::{
     formats::YUVBuffer,
     OpenH264API,
 };
+use rav1e::version::short;
 use std::{
     ops::AddAssign,
     ptr::slice_from_raw_parts,
@@ -151,8 +152,7 @@ pub fn capture_stream(
                 }
                 Ok(Some(f)) => f,
             };
-            let mut target_rgb: Vec<u8> = Vec::new();
-            target_rgb.reserve(frame_width * frame_height * 3);
+            let mut target_rgb: Vec<u8> = vec![0; frame_width * frame_height * 3];
             yuv_frame.write_rgb8(&mut target_rgb);
             let _ = frame_tx.send(target_rgb);
         }
@@ -165,8 +165,15 @@ pub fn capture_stream(
             break;
         }
 
+        let mut shortened_rgb = vec![];
+        shortened_rgb.reserve(frame_width * frame_height * 3);
+
+        for row in rgb_frame.chunks_exact(stream_descr.width as usize * 3).take(frame_height) {
+            shortened_rgb.extend_from_slice(&row[0..frame_width * 3]);
+        }
+
         let mut yuv_buffer = YUVBuffer::new(frame_width, frame_height);
-        yuv_buffer.read_rgb(&rgb_frame);
+        yuv_buffer.read_rgb(&shortened_rgb);
 
         // Encode YUV back into H.264.
         let bitstream = match encoder.encode(&yuv_buffer) {
