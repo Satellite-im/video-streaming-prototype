@@ -132,7 +132,7 @@ pub fn capture_stream(
         };
 
         // Split H.264 into NAL units and decode each.
-        for packet in nal_units(packet) {
+        for packet in nal_units(&packet) {
             // On the first few frames this may fail, so you should check the result
             // a few packets before giving up.
             let yuv_frame = match decoder.decode(packet) {
@@ -148,7 +148,7 @@ pub fn capture_stream(
             };
             let mut target_rgb: Vec<u8> = Vec::new();
             target_rgb.reserve(frame_width * frame_height * 3);
-            yuv_frame.write_rgb8(target_rgb);
+            yuv_frame.write_rgb8(target_rgb.as_slice().as_mut());
             let _ = frame_tx.send(yuv_frame);
     }});
 
