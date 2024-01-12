@@ -21,7 +21,7 @@ async fn main() {
     let should_quit = Arc::new(AtomicBool::new(false));
     let should_quit2 = should_quit.clone();
     std::thread::spawn(move || {
-        if let Err(e) = video::yuv_test2::capture_stream(tx2, should_quit2) {
+        if let Err(e) = video::h264_test::capture_stream(tx2, should_quit2) {
             eprintln!("camera capture failed: {e}");
         }
         println!("closing video camera capture");
